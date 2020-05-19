@@ -1,0 +1,20 @@
+Author: Jamie Strandboge <jamie@canonical.com>
+Description: set SFS_MOUNTPOINT in is_container_with_internal_policy() since it
+ is sometimes called before is_apparmor_loaded()
+Bug: https://launchpad.net/bugs/1824812
+Forwarded: yes
+
+Index: apparmor-2.13.2/parser/rc.apparmor.functions
+===================================================================
+--- apparmor-2.13.2.orig/parser/rc.apparmor.functions
++++ apparmor-2.13.2/parser/rc.apparmor.functions
+@@ -80,6 +80,9 @@ is_apparmor_present() {
+ # process should continue without any loss of functionality. This is an
+ # unsupported configuration that cannot be properly handled by this function.
+ is_container_with_internal_policy() {
++	# this function is sometimes called independently of
++	# is_apparmor_loaded(), so define this here.
++	SFS_MOUNTPOINT="${SECURITYFS}/${MODULE}"
+ 	local ns_stacked_path="${SFS_MOUNTPOINT}/.ns_stacked"
+ 	local ns_name_path="${SFS_MOUNTPOINT}/.ns_name"
+ 	local ns_stacked

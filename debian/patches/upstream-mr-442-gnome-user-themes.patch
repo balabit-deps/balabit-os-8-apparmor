@@ -1,0 +1,31 @@
+commit a863279f064bfad1b80ffa78a4d7d8caad42ff09
+Author: John Johansen <john@jjmx.net>
+Date:   Wed Dec 11 07:43:55 2019 +0000
+
+     gnome abstraction: allow reading per-user themes from $XDG_DATA_HOME
+    
+    Bug-Debian: https://bugs.debian.org/930031
+    
+    As per https://developer.gnome.org/gtk3/stable/ch32s03.html, since GTK+ 3.6, $XDG_DATA_HOME/themes is preferred over $HOME/.themes. We already support the latter, let's also support the former.
+    
+    PR: https://gitlab.com/apparmor/apparmor/merge_requests/442
+    Acked-by: John Johansen <john.johansen@canonical.com>
+    
+    
+    (cherry picked from commit 098f0a7b5fa0acec7f8f148705d6fe520ccf059b)
+    
+    852c1e76 gnome abstraction: allow reading per-user themes from $XDG_DATA_HOME
+
+Index: apparmor-2.13.3/profiles/apparmor.d/abstractions/gnome
+===================================================================
+--- apparmor-2.13.3.orig/profiles/apparmor.d/abstractions/gnome
++++ apparmor-2.13.3/profiles/apparmor.d/abstractions/gnome
+@@ -55,6 +55,8 @@
+   owner @{HOME}/.gtk-bookmarks          r,
+   owner @{HOME}/.themes/                r,
+   owner @{HOME}/.themes/**              r,
++  owner @{user_share_dirs}/themes/      r,
++  owner @{user_share_dirs}/themes/**    r,
+ 
+   # for gtk file dialog
+   owner @{HOME}/.config/gtk-2.0/                    w,

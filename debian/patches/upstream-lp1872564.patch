@@ -1,0 +1,21 @@
+Origin: 16f9f6885aff84123c0b52197f435e40d656c0e4, backport
+Description: abstractions/nameservice: adjust for nss-systemd
+Bug: https://gitlab.com/apparmor/apparmor/-/issues/82
+Bug-Ubuntu: https://launchpad.net/bugs/1872564
+
+Index: apparmor-2.13.3/profiles/apparmor.d/abstractions/nameservice
+===================================================================
+--- apparmor-2.13.3.orig/profiles/apparmor.d/abstractions/nameservice
++++ apparmor-2.13.3/profiles/apparmor.d/abstractions/nameservice
+@@ -29,6 +29,11 @@
+   /var/lib/extrausers/group  r,
+   /var/lib/extrausers/passwd r,
+ 
++  # NSS records from systemd-userdbd.service
++  /{,var/}run/systemd/userdb/ r,
++  /{,var/}run/systemd/userdb/io.systemd.{NameServiceSwitch,Multiplexer,DynamicUser,Home} r,
++  @{PROC}/sys/kernel/random/boot_id r,
++
+   # When using sssd, the passwd and group files are stored in an alternate path
+   # and the nss plugin also needs to talk to a pipe
+   /var/lib/sss/mc/group   r,

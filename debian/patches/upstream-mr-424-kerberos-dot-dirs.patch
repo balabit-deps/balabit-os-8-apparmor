@@ -1,0 +1,31 @@
+commit 370c9292eda51623ab1e3e391eef77a5ebfecf29
+Author: Christian Boltz <gitlab2@cboltz.de>
+Date:   Mon Nov 18 21:35:29 2019 +0000
+
+    Merge branch 'cboltz-abstractions-kerberos' into 'master'
+    
+    abstractions/kerberosclient: allow reading /etc/krb5.conf.d/
+    
+    See merge request apparmor/apparmor!425
+    
+    Acked-by: Steve Beattie <steve@nxnw.org> for 2.10..master
+    Acked-by: John Johansen <john.johansen@canonical.com> for 2.10..master
+    
+    
+    (cherry picked from commit 663546c2842d84255ce6d3e38ac1255c01ca14d6)
+    
+    dffed831 abstractions/kerberosclient: allow reading /etc/krb5.conf.d/
+
+diff --git a/profiles/apparmor.d/abstractions/kerberosclient b/profiles/apparmor.d/abstractions/kerberosclient
+index eab762a2..5b79e3d6 100644
+--- a/profiles/apparmor.d/abstractions/kerberosclient
++++ b/profiles/apparmor.d/abstractions/kerberosclient
+@@ -22,6 +22,8 @@
+ 
+   /etc/krb5.keytab            rk,
+   /etc/krb5.conf              r,
++  /etc/krb5.conf.d/           r,
++  /etc/krb5.conf.d/*          r,
+ 
+   # config files found via strings on libs
+   /etc/krb.conf               r,

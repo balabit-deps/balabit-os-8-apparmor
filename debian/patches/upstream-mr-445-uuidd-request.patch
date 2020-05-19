@@ -1,0 +1,33 @@
+commit d779dbf88a664f06c1265b9e27b93f87de4cfe44
+Author: Christian Boltz <gitlab2@cboltz.de>
+Date:   Mon Feb 3 21:17:28 2020 +0000
+
+    Merge branch 'run-uuidd-request' into 'master'
+    
+    abstractions/base: allow read access to /run/uuidd/request
+    
+    See merge request apparmor/apparmor!445
+    
+    Acked-by: John Johansen <john.johansen@canonical.com> for 2.11..master
+    Acked-by: Christian Boltz <apparmor@cboltz.de> for 2.11..master
+    
+    
+    (cherry picked from commit 80bf9209296417a1a65fe03130530e1303a4d6c7)
+    
+    45fffc12 abstractions/base: allow read access to /run/uuidd/request
+
+diff --git a/profiles/apparmor.d/abstractions/base b/profiles/apparmor.d/abstractions/base
+index 06afecd9..fabb4273 100644
+--- a/profiles/apparmor.d/abstractions/base
++++ b/profiles/apparmor.d/abstractions/base
+@@ -23,6 +23,10 @@
+   /dev/log                       w,
+   /dev/random                    r,
+   /dev/urandom                   r,
++  # Allow access to the uuidd daemon (this daemon is a thin wrapper around
++  # time and getrandom()/{,u}random and, when available, runs under an
++  # unprivilged, dedicated user).
++  /run/uuidd/request             r,
+   /etc/locale/**                 r,
+   /etc/locale.alias              r,
+   /etc/localtime                 r,

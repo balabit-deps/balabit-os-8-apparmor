@@ -1,0 +1,21 @@
+Author: Jamie Strandboge <jamie@canonical.com>
+Description: allow reading /var/lib/snapd/desktop/applications/*.desktop and
+ /var/lib/snapd/desktop/applications/mimeinfo.cache
+Bug-Ubuntu: https://launchpad.net/bugs/1712039
+Forwarded: no
+
+Index: apparmor-2.13.2/profiles/apparmor.d/abstractions/freedesktop.org
+===================================================================
+--- apparmor-2.13.2.orig/profiles/apparmor.d/abstractions/freedesktop.org
++++ apparmor-2.13.2/profiles/apparmor.d/abstractions/freedesktop.org
+@@ -18,6 +18,10 @@
+   /snap/communitheme/*/share/icons/   r,
+   /snap/communitheme/*/share/icons/** r,
+ 
++  # mimeinfo and desktop files for snaps
++  /var/lib/snapd/desktop/applications/mimeinfo.cache r,
++  /var/lib/snapd/desktop/applications/{,*.desktop} r,
++
+   # this should probably go elsewhere
+   @{system_share_dirs}/mime/** r,
+ 

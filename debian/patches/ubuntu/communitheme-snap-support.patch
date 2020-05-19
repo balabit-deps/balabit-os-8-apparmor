@@ -1,0 +1,36 @@
+From: Didier Roche <didier.roche@canonical.com>
+Date: Wed, 11 Apr 2018 10:25:10 +0000
+Subject: add communitheme snap support
+Bug-Ubuntu: https://launchpad.net/bugs/1762983
+
+Forwarded: no
+Index: apparmor-2.13.2/profiles/apparmor.d/abstractions/freedesktop.org
+===================================================================
+--- apparmor-2.13.2.orig/profiles/apparmor.d/abstractions/freedesktop.org
++++ apparmor-2.13.2/profiles/apparmor.d/abstractions/freedesktop.org
+@@ -14,6 +14,10 @@
+   @{system_share_dirs}/icons/{**,}        r,
+   @{system_share_dirs}/pixmaps/{**,}      r,
+ 
++  # communitheme snap
++  /snap/communitheme/*/share/icons/   r,
++  /snap/communitheme/*/share/icons/** r,
++
+   # this should probably go elsewhere
+   @{system_share_dirs}/mime/** r,
+ 
+Index: apparmor-2.13.2/profiles/apparmor.d/abstractions/gnome
+===================================================================
+--- apparmor-2.13.2.orig/profiles/apparmor.d/abstractions/gnome
++++ apparmor-2.13.2/profiles/apparmor.d/abstractions/gnome
+@@ -27,6 +27,10 @@
+   /usr/share/themes/              r,
+   /usr/share/themes/**            r,
+ 
++  # communitheme snap
++  /snap/communitheme/*/share/themes/   r,
++  /snap/communitheme/*/share/themes/** r,
++
+   # for gnome 1 applications
+   /etc/orbitrc                    r,
+ 

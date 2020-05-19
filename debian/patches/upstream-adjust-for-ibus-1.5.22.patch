@@ -1,0 +1,27 @@
+Author: Jamie Strandboge <jamie@canonical.com>
+Description: update ibus abstract path for ibus 1.5.22. Due to LP: #1856738
+ this has not been pushed upstream. Once LP: #1856738 is fixed, this can be
+ upstreamed and the workaround rule removed.
+Bug-Ubuntu: https://launchpad.net/bugs/1580463
+Forwarded: no
+Index: apparmor-2.13.3/profiles/apparmor.d/abstractions/ibus
+===================================================================
+--- apparmor-2.13.3.orig/profiles/apparmor.d/abstractions/ibus
++++ apparmor-2.13.3/profiles/apparmor.d/abstractions/ibus
+@@ -14,6 +14,16 @@
+   owner @{HOME}/.config/ibus/bus/ rw,
+   owner @{HOME}/.config/ibus/bus/* rw,
+ 
++  # abstract path in ibus < 1.5.22 uses /tmp
+   unix (connect, receive, send)
+        type=stream
+        peer=(addr="@/tmp/ibus/dbus-*"),
++
++  # abstract path in ibus >= 1.5.22 uses $XDG_CACHE_HOME (ie, @{HOME}/.cache)
++  # This should use this, but due to LP: #1856738 we cannot
++  #unix (connect, receive, send)
++  #    type=stream
++  #    peer=(addr="@@{HOME}/.cache/ibus/dbus-*"),
++  unix (connect, receive, send)
++       type=stream
++       peer=(addr="@/home/*/.cache/ibus/dbus-*"),

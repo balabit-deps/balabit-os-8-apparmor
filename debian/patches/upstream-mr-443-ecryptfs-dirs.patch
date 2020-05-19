@@ -1,0 +1,32 @@
+commit 9d4571aac924f2457836ae10ee026e5e476cdede
+Author: Christian Boltz <gitlab2@cboltz.de>
+Date:   Mon Feb 3 21:15:38 2020 +0000
+
+    Merge branch 'ecryptfs-top-dir' into 'master'
+    
+    abstractions/base: allow read access to top-level ecryptfs directories
+    
+    See merge request apparmor/apparmor!443
+    
+    Acked-by: John Johansen <john.johansen@canonical.com> for 2.11..master
+    Acked-by: Christian Boltz <apparmor@cboltz.de> for 2.11..master
+    
+    
+    (cherry picked from commit 24895ea302d06684b4fda1c538e04fb9e6d0f287)
+    
+    fbd8981e abstractions/base: allow read access to top-level ecryptfs directories
+
+Index: apparmor-2.13.3/profiles/apparmor.d/abstractions/base
+===================================================================
+--- apparmor-2.13.3.orig/profiles/apparmor.d/abstractions/base
++++ apparmor-2.13.3/profiles/apparmor.d/abstractions/base
+@@ -156,7 +156,9 @@
+   # prevents access to the files from processes running under a different uid.
+ 
+   # encrypted ~/.Private and old-style encrypted $HOME
++  owner @{HOME}/.Private/ r,
+   owner @{HOME}/.Private/** mrixwlk,
+   # new-style encrypted $HOME
++  owner @{HOMEDIRS}/.ecryptfs/*/.Private/ r,
+   owner @{HOMEDIRS}/.ecryptfs/*/.Private/** mrixwlk,
+ 

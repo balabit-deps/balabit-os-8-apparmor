@@ -1,0 +1,27 @@
+From: intrigeri <intrigeri@boum.org>
+Date: Tue, 31 Mar 2020 09:14:58 +0000
+Subject: abstractions/mesa: allow checking if the kernel supports the i915
+ perf interface
+
+On current Debian sid, applications that use mesa need this access.
+
+Origin: https://gitlab.com/apparmor/apparmor/merge_requests/464
+---
+ profiles/apparmor.d/abstractions/mesa | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/profiles/apparmor.d/abstractions/mesa b/profiles/apparmor.d/abstractions/mesa
+index 68e7579..be699c7 100644
+--- a/profiles/apparmor.d/abstractions/mesa
++++ b/profiles/apparmor.d/abstractions/mesa
+@@ -4,6 +4,10 @@
+   # System files
+   /dev/dri/ r, # libGLX_mesa.so calls drmGetDevice2()
+ 
++  # Needed to check if the kernel supports the i915 perf interface
++  # (src/intel/perf/gen_perf.c, load_oa_metrics())
++  @{PROC}/sys/dev/i915/perf_stream_paranoid r,
++
+   # User files
+   owner @{HOME}/.cache/ w, # if user clears all caches
+   owner @{HOME}/.cache/mesa_shader_cache/ w,

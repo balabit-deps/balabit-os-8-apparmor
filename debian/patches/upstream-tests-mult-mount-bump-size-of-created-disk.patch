@@ -1,0 +1,42 @@
+Origin: 515cb80901640be5a6ba87b0f89145427e592962
+Description: regression tests/mult_mount: bump size of created disk image
+
+commit 515cb80901640be5a6ba87b0f89145427e592962
+Author: Steve Beattie <steve.beattie@canonical.com>
+Date:   Tue Jun 25 17:00:12 2019 -0700
+
+    regression tests/mult_mount: bump size of created disk image
+    
+    The mult_mount test creates a small disk image, formats it, and mounts
+    it in multiple locations in preparation for the tests. However, the
+    created raw file (80KB) is too small to make a working file system if
+    4K blocks are used by mkfs. In Ubuntu 19.10, the default was recently
+    changed for mkfs to default to always using 4K blocks, causing the
+    script to fail.
+    
+    We could force mkfs to use 1K blocks, but instead, in case some future
+    version of mkfs decides not to support 1K blocks at all, we bump up the
+    size of the disk image to 512KB; large enough to work with 4K blocks
+    yet small enough to be workable in small scale test environments.
+    
+    Signed-off-by: Steve Beattie <steve.beattie@canonical.com>
+    Acked-by: John Johansen <john.johansen@canonical.com>
+    Acked-by: Seth Arnold <seth.arnold@canonical.com>
+    Bug: https://bugs.launchpad.net/ubuntu/+source/apparmor/+bug/1834192
+    MR: https://gitlab.com/apparmor/apparmor/merge_requests/396
+    (cherry picked from commit 7c7a4bc5311d983f2c4316252b830c52a5a0930b)
+    Signed-off-by: Steve Beattie <steve.beattie@canonical.com>
+
+diff --git a/tests/regression/apparmor/mult_mount.sh b/tests/regression/apparmor/mult_mount.sh
+index 2189c314..ae4749a3 100644
+--- a/tests/regression/apparmor/mult_mount.sh
++++ b/tests/regression/apparmor/mult_mount.sh
+@@ -55,7 +55,7 @@ mkdirperm_fail=r
+ linkperm=rl
+ readperm=r
+ 
+-dd if=/dev/zero of=$image bs=4096 count=20 > /dev/null 2>&1
++dd if=/dev/zero of=$image bs=4096 count=128 > /dev/null 2>&1
+ mkfs.ext2 -F -m 0 -N 10 $image > /dev/null 2>&1
+ 
+ mkdir $mp1 $mp2

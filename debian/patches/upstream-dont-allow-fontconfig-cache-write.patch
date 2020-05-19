@@ -1,0 +1,32 @@
+Origin: https://gitlab.com/apparmor/apparmor/merge_requests/420
+Description: abstractions/fonts: don't allow write of fontconfig cache files
+
+commit c5968c70d0f1bd3da9ed1a19b5a79748adbfd566
+Author: Jamie Strandboge <jamie@ubuntu.com>
+Date:   Mon Sep 9 15:48:05 2019 -0500
+
+    abstractions/fonts: don't allow write of fontconfig cache files
+    
+    879531b36ec3dfc7f9b72475c68c30e4f4b7b6af changed access for
+    @{HOME}/.{,cache/}fontconfig/** to include 'w'rite. Fontconfig has been
+    a source of CVEs. Confined applications should absolutely have read
+    access, but write access could lead to breaking out of the sandbox if a
+    confined application can write a malformed font cache file since
+    unconfined applications could then pick them up and be controlled via
+    the malformed cache. The breakout is dependent on the fontconfig
+    vulnerability, but this is the sort of thing AppArmor is meant to help
+    guard against.
+
+diff --git a/profiles/apparmor.d/abstractions/fonts b/profiles/apparmor.d/abstractions/fonts
+index 56185846..2cf6bfe2 100644
+--- a/profiles/apparmor.d/abstractions/fonts
++++ b/profiles/apparmor.d/abstractions/fonts
+@@ -45,7 +45,7 @@
+   owner @{HOME}/.local/share/fonts/**   r,
+   owner @{HOME}/.fonts.cache-2          mr,
+   owner @{HOME}/.{,cache/}fontconfig/   rw,
+-  owner @{HOME}/.{,cache/}fontconfig/** mrwl,
++  owner @{HOME}/.{,cache/}fontconfig/** mrl,
+   owner @{HOME}/.fonts.conf.d/          r,
+   owner @{HOME}/.fonts.conf.d/**        r,
+   owner @{HOME}/.config/fontconfig/     r,

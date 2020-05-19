@@ -1,0 +1,17 @@
+Author: Jamie Strandboge <jamie@canonical.com>
+Description: abstractions/gnome: also allow /etc/xdg/mimeapps.list
+Bug-Ubuntu: https://launchpad.net/bugs/1792027
+Forwarded: yes
+Index: apparmor-2.13.3/profiles/apparmor.d/abstractions/gnome
+===================================================================
+--- apparmor-2.13.3.orig/profiles/apparmor.d/abstractions/gnome
++++ apparmor-2.13.3/profiles/apparmor.d/abstractions/gnome
+@@ -100,7 +100,7 @@
+ 
+   # mime-types
+   /etc/gnome/defaults.list r,
+-  /etc/xdg/*-mimeapps.list r,
++  /etc/xdg/{,*-}mimeapps.list r,
+   /usr/share/gnome/applications/ r,
+   /usr/share/gnome/applications/mimeinfo.cache r,
+ 

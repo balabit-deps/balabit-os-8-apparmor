@@ -1,0 +1,36 @@
+From: intrigeri <intrigeri@boum.org>
+Date: Sun, 8 Sep 2019 07:35:00 +0000
+Subject: abstractions/X: allow reading the Xauth file mutter passes to
+ Xwayland.
+MIME-Version: 1.0
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 8bit
+
+Bug-Debian: https://bugs.debian.org/935058
+Origin: https://gitlab.com/apparmor/apparmor/merge_requests/419
+
+Applications running under Xwayland in a GNOME+Wayland session need read access
+to this file since:
+
+  https://gitlab.gnome.org/jwrdegoede/mutter/commit/a8984a81c2e887623d69ec9989ae8a5025f7bd47
+
+… that was first included in mutter 3.33.3.
+
+This rule is presumably only needed for GNOME+Wayland sessions, so one could
+argue that it should live in abstractions/wayland instead, but Jamie argued that
+it should be in the X abstraction because Xwayland is a X server.
+---
+ profiles/apparmor.d/abstractions/X | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/profiles/apparmor.d/abstractions/X b/profiles/apparmor.d/abstractions/X
+index 06408d3..db3521e 100644
+--- a/profiles/apparmor.d/abstractions/X
++++ b/profiles/apparmor.d/abstractions/X
+@@ -52,3 +52,6 @@
+   # mouse themes
+   /etc/X11/cursors/               r,
+   /etc/X11/cursors/**             r,
++
++  # Xwayland
++  owner /run/user/*/.mutter-Xwaylandauth.* r,

@@ -1,0 +1,35 @@
+From dda6825ff2c268d582afe0ba7faf00ed2d525929 Mon Sep 17 00:00:00 2001
+From: Rich McAllister <Nopublic@address.provided>
+Date: Tue, 31 Mar 2020 21:01:21 -0700
+Subject: [PATCH] abstractions: add /etc/mdns.allow to
+ /etc/apparmor.d/abstractions/mdns
+
+In focal users of mdns get denials in apparmor confined applications.
+An exampel can be found in the original bug below.
+
+It seems it is a common pattern, see
+https://github.com/lathiat/nss-mdns#etcmdnsallow
+
+Therefore I'm asking to add
+   /etc/mdns.allow r,
+to the file
+   /etc/apparmor.d/abstractions/mdns"
+by default.
+
+Bug-Ubuntu: https://bugs.launchpad.net/bugs/1869629
+Origin: upstream, https://gitlab.com/apparmor/apparmor/-/commit/eeac8c11c935
+Last-Update: 2020-04-01
+
+---
+ profiles/apparmor.d/abstractions/mdns |    1 +
+ 1 file changed, 1 insertion(+)
+
+--- apparmor-2.13.3.orig/profiles/apparmor.d/abstractions/mdns
++++ apparmor-2.13.3/profiles/apparmor.d/abstractions/mdns
+@@ -9,5 +9,6 @@
+ # ------------------------------------------------------------------
+ 
+   # mdnsd
++  /etc/mdns.allow r,
+   /etc/nss_mdns.conf r,
+   /{,var/}run/mdnsd w,
