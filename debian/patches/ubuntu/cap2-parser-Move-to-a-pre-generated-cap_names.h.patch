@@ -1,0 +1,184 @@
+From efb6952e0c2969f43060b2a0d9af5ae3af6afc3f Mon Sep 17 00:00:00 2001
+From: John Johansen <john.johansen@canonical.com>
+Date: Sun, 14 Jun 2020 16:37:51 -0700
+Subject: [PATCH] parser: Move to a pre-generated cap_names.h
+
+The auto-generated cap_names.h has problems when the parser if the
+parser is built against a kernel with a smaller capability list than
+the kernel policy is being compiled for.
+
+Moving to a pre-generated list lets us support all capabilities even
+when we build against older kernels. However we don't want to only use
+the pre-generated list as that would make it too easy to miss when a
+new capability has been added.
+
+Keep auto generating the caps list and compare it to the pre-generated
+caps list so we can detect when new capabilities are added, and fail
+the build so that the pre-generated list can be updated. We screen the
+diff for only additions so that the parser can continue to build on
+older kernels that don't have the full capability list without errors.
+
+Signed-off-by: John Johansen <john.johansen@canonical.com>
+(cherry picked from commit 270fb0a2b27321fb14a316b3a3afd4b86f9cec6f)
+---
+ .gitignore              |  1 +
+ parser/Makefile         | 14 ++++++--
+ parser/base_cap_names.h | 80 +++++++++++++++++++++++++++++++++++++++++
+ parser/parser_misc.c    |  8 +++++
+ 4 files changed, 101 insertions(+), 2 deletions(-)
+ create mode 100644 parser/base_cap_names.h
+
+diff --git a/.gitignore b/.gitignore
+index 2ce595063..cd339b873 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -8,6 +8,7 @@ binutils/po/*.mo
+ parser/po/*.mo
+ parser/af_names.h
+ parser/cap_names.h
++parser/generated_cap_names.h
+ parser/tst_lib
+ parser/tst_misc
+ parser/tst_regex
+diff --git a/parser/Makefile b/parser/Makefile
+index d2bdc4def..cb3c1aabe 100644
+--- a/parser/Makefile
++++ b/parser/Makefile
+@@ -282,9 +282,19 @@ af_names.h:
+ 	echo "$(AF_NAMES)" | LC_ALL=C sed -n -e 's/.*,[ \t]\+AF_MAX[ \t]\+\([0-9]\+\),\?.*/#define AA_AF_MAX \1\n/p' >> $@
+ 	# cat $@
+ 
+-cap_names.h: /usr/include/linux/capability.h
++generated_cap_names.h: /usr/include/linux/capability.h
+ 	../common/list_capabilities.sh | LC_ALL=C sed -n -e "s/[ \\t]\\?CAP_\\([A-Z0-9_]\\+\\)/\{\"\\L\\1\", \\UCAP_\\1\},\\n/pg" > $@
+ 
++cap_names.h: generated_cap_names.h base_cap_names.h
++	@ diff -u base_cap_names.h generated_cap_names.h | grep '^\+[^+]' ; \
++	if [ $$? -eq 1 ] ; then \
++		cp base_cap_names.h $@ ; \
++	else \
++		echo "Error: new capabilities detected please update base_cap_names.h with values from generated_cap_names.h" ; \
++		diff -u base_cap_names.h generated_cap_names.h ; \
++		exit 1; \
++	fi
++
+ tst_lib: lib.c parser.h $(filter-out lib.o, ${TEST_OBJECTS})
+ 	$(CXX) $(TEST_CFLAGS) -o $@ $< $(filter-out $(<:.c=.o), ${TEST_OBJECTS}) $(TEST_LDFLAGS) $(TEST_LDLIBS)
+ tst_%: parser_%.c parser.h $(filter-out parser_%.o, ${TEST_OBJECTS})
+@@ -396,7 +406,7 @@ clean: pod_clean
+ 	rm -f parser_version.h
+ 	rm -f $(NAME)*.tar.gz $(NAME)*.tgz
+ 	rm -f af_names.h
+-	rm -f cap_names.h
++	rm -f cap_names.h generated_cap_names.h
+ 	rm -rf techdoc.aux techdoc.out techdoc.log techdoc.pdf techdoc.toc techdoc.txt techdoc/
+ 	$(MAKE) -s -C $(AAREDIR) clean
+ 	$(MAKE) -s -C po clean
+diff --git a/parser/base_cap_names.h b/parser/base_cap_names.h
+new file mode 100644
+index 000000000..6cbac5ac9
+--- /dev/null
++++ b/parser/base_cap_names.h
+@@ -0,0 +1,80 @@
++{"audit_control", CAP_AUDIT_CONTROL},
++
++{"audit_read", CAP_AUDIT_READ},
++
++{"audit_write", CAP_AUDIT_WRITE},
++
++{"block_suspend", CAP_BLOCK_SUSPEND},
++
++{"bpf", CAP_BPF},
++
++{"chown", CAP_CHOWN},
++
++{"dac_override", CAP_DAC_OVERRIDE},
++
++{"dac_read_search", CAP_DAC_READ_SEARCH},
++
++{"fowner", CAP_FOWNER},
++
++{"fsetid", CAP_FSETID},
++
++{"ipc_lock", CAP_IPC_LOCK},
++
++{"ipc_owner", CAP_IPC_OWNER},
++
++{"kill", CAP_KILL},
++
++{"lease", CAP_LEASE},
++
++{"linux_immutable", CAP_LINUX_IMMUTABLE},
++
++{"mac_admin", CAP_MAC_ADMIN},
++
++{"mac_override", CAP_MAC_OVERRIDE},
++
++{"mknod", CAP_MKNOD},
++
++{"net_admin", CAP_NET_ADMIN},
++
++{"net_bind_service", CAP_NET_BIND_SERVICE},
++
++{"net_broadcast", CAP_NET_BROADCAST},
++
++{"net_raw", CAP_NET_RAW},
++
++{"perfmon", CAP_PERFMON},
++
++{"setfcap", CAP_SETFCAP},
++
++{"setgid", CAP_SETGID},
++
++{"setpcap", CAP_SETPCAP},
++
++{"setuid", CAP_SETUID},
++
++{"syslog", CAP_SYSLOG},
++
++{"sys_admin", CAP_SYS_ADMIN},
++
++{"sys_boot", CAP_SYS_BOOT},
++
++{"sys_chroot", CAP_SYS_CHROOT},
++
++{"sys_module", CAP_SYS_MODULE},
++
++{"sys_nice", CAP_SYS_NICE},
++
++{"sys_pacct", CAP_SYS_PACCT},
++
++{"sys_ptrace", CAP_SYS_PTRACE},
++
++{"sys_rawio", CAP_SYS_RAWIO},
++
++{"sys_resource", CAP_SYS_RESOURCE},
++
++{"sys_time", CAP_SYS_TIME},
++
++{"sys_tty_config", CAP_SYS_TTY_CONFIG},
++
++{"wake_alarm", CAP_WAKE_ALARM},
++
+diff --git a/parser/parser_misc.c b/parser/parser_misc.c
+index 6a0f42d16..ef1b0ecdd 100644
+--- a/parser/parser_misc.c
++++ b/parser/parser_misc.c
+@@ -165,6 +165,14 @@ static int get_table_token(const char *n
+ 	return -1;
+ }
+ 
++#ifndef CAP_PERFMON
++#define CAP_PERFMON 38
++#endif
++
++#ifndef CAP_BPF
++#define CAP_BPF 39
++#endif
++
+ static struct keyword_table capability_table[] = {
+ 	/* capabilities */
+ 	#include "cap_names.h"
+-- 
+2.34.1
+

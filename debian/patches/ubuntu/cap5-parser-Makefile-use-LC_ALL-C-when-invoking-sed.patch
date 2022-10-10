@@ -1,0 +1,36 @@
+From ef8d514138ae18cbb3b356db58c77eca2833e311 Mon Sep 17 00:00:00 2001
+From: John Johansen <john.johansen@canonical.com>
+Date: Wed, 26 Aug 2020 19:43:10 -0700
+Subject: [PATCH] parser/Makefile: use LC_ALL=C when invoking sed
+
+Acked-by: Steve Beattie <steve.beattie@canonical.com>
+Acked-by: Seth Arnold <seth.arnold@canonical.com>
+MR: https://gitlab.com/apparmor/apparmor/-/merge_requests/596
+(backported from commit 33ff79a9e59dc72428a9d4d94b01e00b8d0b8429)
+Signed-off-by: John Johansen <john.johansen@canonical.com>
+---
+ parser/Makefile | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/parser/Makefile b/parser/Makefile
+index cb3c1aabe..70583dc70 100644
+--- a/parser/Makefile
++++ b/parser/Makefile
+@@ -286,12 +286,12 @@ generated_cap_names.h: /usr/include/linu
+ 	../common/list_capabilities.sh | LC_ALL=C sed -n -e "s/[ \\t]\\?CAP_\\([A-Z0-9_]\\+\\)/\{\"\\L\\1\", \\UCAP_\\1\},\\n/pg" > $@
+ 
+ cap_names.h: generated_cap_names.h base_cap_names.h
+-	@ diff -u base_cap_names.h generated_cap_names.h | grep '^\+[^+]' ; \
++	@ LC_ALL=C diff -u base_cap_names.h generated_cap_names.h | grep '^\+[^+]' ; \
+ 	if [ $$? -eq 1 ] ; then \
+ 		cp base_cap_names.h $@ ; \
+ 	else \
+ 		echo "Error: new capabilities detected please update base_cap_names.h with values from generated_cap_names.h" ; \
+-		diff -u base_cap_names.h generated_cap_names.h ; \
++		LC_ALL=C diff -u base_cap_names.h generated_cap_names.h ; \
+ 		exit 1; \
+ 	fi
+ 
+-- 
+2.34.1
+

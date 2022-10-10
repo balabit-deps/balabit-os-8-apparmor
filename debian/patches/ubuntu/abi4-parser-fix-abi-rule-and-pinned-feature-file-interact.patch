@@ -1,0 +1,209 @@
+From 6035b16eaa2f3c61a6f3a473b608fcad9c78f08c Mon Sep 17 00:00:00 2001
+From: John Johansen <john.johansen@canonical.com>
+Date: Thu, 9 Jul 2020 02:43:10 -0700
+Subject: [PATCH] parser: fix abi rule and pinned feature file interaction
+
+In AppArmor 2 distros could pin the feature file being used by setting
+the feature-file option in the config file.
+
+With AppArmor 3 policy is now explicitly tagged with an abi rule.
+
+The problem is the interaction on systems that have a mixture of
+AppArmor 2 and AppArmor 3 policy and use feature pinning.
+
+The feature pinning is required to make the apparmor 2 policy behave
+as expected but it also overrides the abi rules that are explicitly
+set as part of the policy. This means we either have the apparmor 2
+pinned policy working as desired or the apparmor 3 policy, but not
+both.
+
+To fix this make setting the flag on command line or in config file
+lower priority than an abi rule specified in policy. The ability
+to override abi rules will be added in a separate patch.
+
+The Priority ordering to determine the policy abi to use is
+1. Use abi rules if present
+2. if no abi rule use command line option
+3. if no abi rule or command line option use config setting
+4. if none of the above use the default abi
+
+PR: https://gitlab.com/apparmor/apparmor/-/merge_requests/579
+Signed-off-by: John Johansen <john.johansen@canonical.com>
+(cherry picked from commit acb45dc4b07b647e2434b75a5d8be440ea714075)
+Signed-off-by: Georgia Garcia <georgia.garcia@canonical.com>
+---
+ parser/apparmor.d.pod | 11 +++++++++++
+ parser/parser.h       |  1 +
+ parser/parser_main.c  | 39 +++++++++++++++++++--------------------
+ parser/parser_yacc.y  | 14 +++++++++-----
+ 4 files changed, 40 insertions(+), 25 deletions(-)
+
+diff --git a/parser/apparmor.d.pod b/parser/apparmor.d.pod
+index 765ecd5a9..e525df762 100644
+--- a/parser/apparmor.d.pod
++++ b/parser/apparmor.d.pod
+@@ -1550,6 +1550,17 @@ If the policy abi is specified as B<kernel> then the running kernel's
+ abi will be used. This should never be used in shipped policy as it
+ can cause system breakage when a new kernel is installed.
+ 
++=head3 ABI compatability with AppArmor 2.x
++
++AppArmor 3 remains compatible with AppArmor 2.x by detecting when a
++profile does not have a feature ABI specified. In this case the policy
++compile will either apply the pinned feature ABI as specified by the
++config file or the command line, or if neither of those are applied by
++using a default feature ABI.
++
++It is important to note that the default feature ABI does not support
++new features added in AppArmor 3 or later.
++
+ =head1 EXAMPLE
+ 
+ An example AppArmor profile:
+diff --git a/parser/parser.h b/parser/parser.h
+index 008cbb03f..7f79fd97b 100644
+--- a/parser/parser.h
++++ b/parser/parser.h
+@@ -295,6 +295,7 @@ extern uint32_t policy_version;
+ extern uint32_t parser_abi_version;
+ extern uint32_t kernel_abi_version;
+ 
++extern aa_features *pinned_features;
+ extern aa_features *policy_features;
+ extern aa_features *kernel_features;
+ 
+diff --git a/parser/parser_main.c b/parser/parser_main.c
+index caf7de97c..5bfe6dd0a 100644
+--- a/parser/parser_main.c
++++ b/parser/parser_main.c
+@@ -109,8 +109,8 @@ static const char *cacheloc[MAX_CACHE_LOCS];
+ static int cacheloc_n = 0;
+ static bool print_cache_dir = false;
+ 
++aa_features *pinned_features = NULL;
+ aa_features *policy_features = NULL;
+-bool specified_policy_features = false;
+ aa_features *kernel_features = NULL;
+ 
+ static const char *config_file = "/etc/apparmor/parser.conf";
+@@ -407,6 +407,7 @@ bool early_arg(int c) {
+  */
+ static int process_arg(int c, char *optarg)
+ {
++	struct aa_features *tmp_features = NULL;
+ 	int count = 0;
+ 
+ 	switch (c) {
+@@ -529,32 +530,32 @@ static int process_arg(int c, char *optarg)
+ 		}
+ 		break;
+ 	case 'm':
+-		if (policy_features)
+-			aa_features_unref(policy_features);
++		if (pinned_features)
++			aa_features_unref(pinned_features);
+ 		if (kernel_features)
+ 			aa_features_unref(kernel_features);
+-		if (aa_features_new_from_string(&policy_features,
++		if (aa_features_new_from_string(&tmp_features,
+ 						optarg, strlen(optarg))) {
+ 			fprintf(stderr,
+ 				"Failed to parse features string: %m\n");
+ 			exit(1);
+ 		}
+-		kernel_features = aa_features_ref(policy_features);
+-		specified_policy_features = true;
++		kernel_features = aa_features_ref(tmp_features);
++		pinned_features = tmp_features;
+ 		break;
+ 	case 'M':
+-		if (policy_features)
+-			aa_features_unref(policy_features);
++		if (pinned_features)
++			aa_features_unref(pinned_features);
+ 		if (kernel_features)
+ 			aa_features_unref(kernel_features);
+-		if (aa_features_new(&policy_features, AT_FDCWD, optarg)) {
++		if (aa_features_new(&tmp_features, AT_FDCWD, optarg)) {
+ 			fprintf(stderr,
+ 				"Failed to load features from '%s': %m\n",
+ 				optarg);
+ 			exit(1);
+ 		}
+-		kernel_features = aa_features_ref(policy_features);
+-		specified_policy_features = true;
++		kernel_features = aa_features_ref(tmp_features);
++		pinned_features = tmp_features;
+ 		break;
+ 	case 138:
+ 		if (kernel_features)
+@@ -567,21 +568,21 @@ static int process_arg(int c, char *optarg)
+ 		}
+ 		break;
+ 	case 139:
+-		if (policy_features)
+-			aa_features_unref(policy_features);
++		if (pinned_features)
++			aa_features_unref(pinned_features);
+ 		if (strcmp(optarg, "<kernel>") == 0) {
+-			if (aa_features_new_from_kernel(&policy_features)) {
++			if (aa_features_new_from_kernel(&tmp_features)) {
+ 				fprintf(stderr,
+ 					"Failed to load kernel features into the policy-features abi: %m\n");
+ 				exit(1);
+ 			}
+-		} else if (aa_features_new(&policy_features, AT_FDCWD, optarg)) {
++		} else if (aa_features_new(&tmp_features, AT_FDCWD, optarg)) {
+ 			fprintf(stderr,
+ 				"Failed to load policy-features from '%s': %m\n",
+ 				optarg);
+ 			exit(1);
+ 		}
+-		specified_policy_features = true;
++		pinned_features = tmp_features;
+ 		break;
+ 	case 'q':
+ 		conf_verbose = 0;
+@@ -915,10 +916,8 @@ void reset_parser(const char *filename)
+ 	free_symtabs();
+ 	free_policies();
+ 	reset_include_stack(filename);
+-	if (!specified_policy_features) {
+-		aa_features_unref(policy_features);
+-		policy_features = NULL;
+-	}
++	aa_features_unref(policy_features);
++	policy_features = NULL;
+ }
+ 
+ int test_for_dir_mode(const char *basename, const char *linkdir)
+diff --git a/parser/parser_yacc.y b/parser/parser_yacc.y
+index 90021d81f..6d9317da6 100644
+--- a/parser/parser_yacc.y
++++ b/parser/parser_yacc.y
+@@ -291,13 +291,17 @@ list:	 preamble
+ 	{
+ 		/* make sure abi is setup */
+ 		if (policy_features == NULL) {
++			if (pinned_features) {
++				policy_features = aa_features_ref(pinned_features);
+ 			/* use default feature abi */
+-			if (aa_features_new_from_string(&policy_features,
+-					default_features_abi,
+-					strlen(default_features_abi))) {
+-				yyerror(_("Failed to setup default policy feature abi"));
++			} else {
++				if (aa_features_new_from_string(&policy_features,
++								default_features_abi,
++								strlen(default_features_abi))) {
++					yyerror(_("Failed to setup default policy feature abi"));
++				}
++				pwarn(_("%s: File '%s' missing feature abi, falling back to default policy feature abi\n"), progname, current_filename);
+ 			}
+-			pwarn(_("%s: File '%s' missing feature abi, falling back to default policy feature abi\n"), progname, current_filename);
+ 		}
+ 		set_supported_features();
+ 
+-- 
+2.34.1
+

@@ -1,0 +1,34 @@
+From ed61e482cb406b98e17ec39890e648282ece1ee7 Mon Sep 17 00:00:00 2001
+From: John Johansen <john.johansen@canonical.com>
+Date: Tue, 23 Jun 2020 04:11:25 -0700
+Subject: [PATCH] parser: cleanup capability_table generation by dropping cap
+ sys_log
+
+The static cap sys_log declaration is no longer needed as
+base_cap_names.h contains it and ensures that it will always be
+present.
+
+Signed-off-by: John Johansen <john.johansen@canonical.com>
+(cherry picked from commit fdba3a571c82adb589732a1eccbc36878a194330)
+---
+ parser/parser_misc.c | 4 +---
+ 1 file changed, 1 insertion(+), 3 deletions(-)
+
+diff --git a/parser/parser_misc.c b/parser/parser_misc.c
+index ef1b0ecdd..8d1553d78 100644
+--- a/parser/parser_misc.c
++++ b/parser/parser_misc.c
+@@ -176,9 +176,7 @@ static int get_table_token(const char *name unused, struct keyword_table *table,
+ static struct keyword_table capability_table[] = {
+ 	/* capabilities */
+ 	#include "cap_names.h"
+-#ifndef CAP_SYSLOG
+-	{"syslog", 34},
+-#endif
++
+ 	/* terminate */
+ 	{NULL, 0}
+ };
+-- 
+2.34.1
+

@@ -3,6 +3,7 @@ debian/apport/source_apparmor.py /usr/share/apport/package-hooks/
 #debian/features /usr/share/apparmor-features/
 debian/lib/apparmor/profile-load /lib/apparmor/
 etc/apparmor.d/abstractions/*
+etc/apparmor.d/abi/*
 etc/apparmor.d/local/README
 etc/apparmor.d/lsb_release
 etc/apparmor.d/nvidia_modprobe

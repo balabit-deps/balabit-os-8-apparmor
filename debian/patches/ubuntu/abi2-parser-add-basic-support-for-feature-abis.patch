@@ -1,0 +1,1486 @@
+From 117c51e8f718763620bd8a2bdd64f5ef63401779 Mon Sep 17 00:00:00 2001
+From: John Johansen <john.johansen@canonical.com>
+Date: Fri, 24 Apr 2020 17:43:47 -0700
+Subject: [PATCH] parser: add basic support for feature abis
+
+Add basic support for policy to specify a feature abi. Under the
+current implementation the first feature abi specified will be
+used as the policy abi for the entire profile.
+
+If no feature abi is defined before rules are processed then the
+default policy abi will be used.
+
+If multiple feature abi rules are encountered and the specified
+abi is different then a warning will be issued, and the initial abi
+will continue to be used. The ability to support multiple policy
+feature abis during a compile will be added in a future patch.
+
+MR: https://gitlab.com/apparmor/apparmor/-/merge_requests/491
+Signed-off-by: John Johansen <john.johansen@canonical.com>
+Acked-by: Steve Beattie <sbeattie@ubuntu.com>
+(cherry picked from commit 162da1ba48635a3c0be8390bd405105d700c715f)
+Signed-off-by: Georgia Garcia <georgia.garcia@canonical.com>
+---
+ libraries/libapparmor/doc/aa_features.pod     |   6 +
+ libraries/libapparmor/include/sys/apparmor.h  |   1 +
+ libraries/libapparmor/src/features.c          |  99 +++++++--
+ parser/Makefile                               |   5 +-
+ parser/apparmor.d.pod                         |  29 ++-
+ parser/default_features.c                     | 193 ++++++++++++++++++
+ parser/parser.h                               |  12 ++
+ parser/parser_common.c                        |   8 +-
+ parser/parser_lex.l                           |  37 +++-
+ parser/parser_main.c                          | 122 +++++++----
+ parser/parser_yacc.y                          |  81 +++++++-
+ parser/tst/simple_tests/abi/bad_1.sd          |   2 +-
+ parser/tst/simple_tests/abi/bad_6.sd          |   4 +-
+ parser/tst/simple_tests/abi/ok_1.sd           |   2 +-
+ parser/tst/simple_tests/abi/ok_10.sd          |   2 +-
+ parser/tst/simple_tests/abi/ok_11.sd          |   2 +-
+ parser/tst/simple_tests/abi/ok_12.sd          |   2 +-
+ parser/tst/simple_tests/abi/ok_13.sd          |   2 +-
+ parser/tst/simple_tests/abi/ok_14.sd          |   2 +-
+ parser/tst/simple_tests/abi/ok_15.sd          |   2 +-
+ parser/tst/simple_tests/abi/ok_16.sd          |   2 +-
+ parser/tst/simple_tests/abi/ok_17.sd          |   2 +-
+ parser/tst/simple_tests/abi/ok_18.sd          |   2 +-
+ parser/tst/simple_tests/abi/ok_2.sd           |   2 +-
+ parser/tst/simple_tests/abi/ok_20.sd          |   2 +-
+ parser/tst/simple_tests/abi/ok_21.sd          |   2 +-
+ parser/tst/simple_tests/abi/ok_22.sd          |   2 +-
+ parser/tst/simple_tests/abi/ok_3.sd           |   2 +-
+ parser/tst/simple_tests/abi/ok_4.sd           |   2 +-
+ parser/tst/simple_tests/abi/ok_5.sd           |   2 +-
+ parser/tst/simple_tests/abi/ok_6.sd           |   2 +-
+ parser/tst/simple_tests/abi/ok_7.sd           |   2 +-
+ parser/tst/simple_tests/abi/ok_8.sd           |   2 +-
+ parser/tst/simple_tests/abi/ok_9.sd           |   2 +-
+ parser/tst/simple_tests/includes/abi/4.19     |  78 +++++++
+ .../tst/simple_tests/includes/abi/4.19 ubuntu |  78 +++++++
+ tests/regression/apparmor/prologue.inc        |   1 +
+ 37 files changed, 699 insertions(+), 99 deletions(-)
+ create mode 100644 parser/default_features.c
+ create mode 100644 parser/tst/simple_tests/includes/abi/4.19
+ create mode 100644 parser/tst/simple_tests/includes/abi/4.19 ubuntu
+
+diff --git a/libraries/libapparmor/doc/aa_features.pod b/libraries/libapparmor/doc/aa_features.pod
+index 4cae14689..4a99f45fb 100644
+--- a/libraries/libapparmor/doc/aa_features.pod
++++ b/libraries/libapparmor/doc/aa_features.pod
+@@ -50,6 +50,8 @@ B<typedef struct aa_features aa_features;>
+ 
+ B<int aa_features_new(aa_features **features, int dirfd, const char *path);>
+ 
++B<int aa_features_new_from_file(aa_features **features, int fd);>
++
+ B<int aa_features_new_from_string(aa_features **features, const char *string, size_t size);>
+ 
+ B<int aa_features_new_from_kernel(aa_features **features);>
+@@ -82,6 +84,10 @@ directory file descriptor and path. The I<path> can point to a file or
+ directory. See the openat(2) man page for examples of I<dirfd> and I<path>. The
+ allocated I<features> object must be freed using aa_features_unref().
+ 
++The aa_features_new_from_file() function is similar except that it
++accepts an open file as the argument. The allocated I<features> object
++must be freed using aa_features_unref().
++
+ The aa_features_new_from_string() function is similar except that it accepts a
+ NUL-terminated string representation of the AppArmor features as the I<string>
+ argument. The length of the features string, not counting the NUL-terminator,
+diff --git a/libraries/libapparmor/include/sys/apparmor.h b/libraries/libapparmor/include/sys/apparmor.h
+index 61209f370..05cc70095 100644
+--- a/libraries/libapparmor/include/sys/apparmor.h
++++ b/libraries/libapparmor/include/sys/apparmor.h
+@@ -143,6 +143,7 @@ extern int aa_query_link_path(const char *label, const char *target,
+ 
+ typedef struct aa_features aa_features;
+ extern int aa_features_new(aa_features **features, int dirfd, const char *path);
++extern int aa_features_new_from_file(aa_features **features, int file);
+ extern int aa_features_new_from_string(aa_features **features,
+ 				       const char *string, size_t size);
+ extern int aa_features_new_from_kernel(aa_features **features);
+diff --git a/libraries/libapparmor/src/features.c b/libraries/libapparmor/src/features.c
+index e4b6e04ab..64be077ec 100644
+--- a/libraries/libapparmor/src/features.c
++++ b/libraries/libapparmor/src/features.c
+@@ -98,9 +98,8 @@ static int features_snprintf(struct features_struct *fst, const char *fmt, ...)
+ 	return 0;
+ }
+ 
+-/* load_features_file - opens and reads a file into @buffer and then NUL-terminates @buffer
+- * @dirfd: a directory file descriptory or AT_FDCWD (see openat(2))
+- * @path: name of the file
++/* load_features_file - reads a file into @buffer and then NUL-terminates @buffer
++ * @file: file to read the features from
+  * @buffer: the buffer to read the features file into (will be NUL-terminated on success)
+  * @size: the size of @buffer
+  *
+@@ -110,25 +109,11 @@ static int features_snprintf(struct features_struct *fst, const char *fmt, ...)
+  * ENOBUFS indicating that @buffer was not large enough to contain all of the
+  * file contents.
+  */
+-static ssize_t load_features_file(int dirfd, const char *path,
+-				  char *buffer, size_t size)
++static ssize_t load_features_file(int file, char *buffer, size_t size)
+ {
+-	autoclose int file = -1;
+ 	char *pos = buffer;
+ 	ssize_t len;
+ 
+-	file = openat(dirfd, path, O_RDONLY);
+-	if (file < 0) {
+-		PDEBUG("Could not open '%s'\n", path);
+-		return -1;
+-	}
+-	PDEBUG("Opened features \"%s\"\n", path);
+-
+-	if (!size) {
+-		errno = ENOBUFS;
+-		return -1;
+-	}
+-
+ 	/* Save room for a NUL-terminator at the end of @buffer */
+ 	size--;
+ 
+@@ -161,6 +146,38 @@ static ssize_t load_features_file(int dirfd, const char *path,
+ 	return pos - buffer;
+ }
+ 
++/* open_and_load_features_file - opens and reads a file into @buffer and then NUL-terminates @buffer
++ * @dirfd: a directory file descriptory or AT_FDCWD (see openat(2))
++ * @path: name of the file
++ * @buffer: the buffer to read the features file into (will be NUL-terminated on success)
++ * @size: the size of @buffer
++ *
++ * Returns: The number of bytes copied into @buffer on success (not counting
++ * the NUL-terminator), else -1 and errno is set. Note that @size must be
++ * larger than the size of the file or -1 will be returned with errno set to
++ * ENOBUFS indicating that @buffer was not large enough to contain all of the
++ * file contents.
++ */
++static ssize_t open_and_load_features_file(int dirfd, const char *path,
++					   char *buffer, size_t size)
++{
++	autoclose int file = -1;
++
++	file = openat(dirfd, path, O_RDONLY);
++	if (file < 0) {
++		PDEBUG("Could not open '%s': %m\n", path);
++		return -1;
++	}
++	PDEBUG("Opened features '%s': %m\n", path);
++
++	if (!size) {
++		errno = ENOBUFS;
++		return -1;
++	}
++
++	return load_features_file(file, buffer, size);
++}
++
+ static int features_dir_cb(int dirfd, const char *name, struct stat *st,
+ 			   void *data)
+ {
+@@ -180,7 +197,7 @@ static int features_dir_cb(int dirfd, const char *name, struct stat *st,
+ 		if (features_buffer_remaining(fst, &remaining) == -1)
+ 			return -1;
+ 
+-		len = load_features_file(dirfd, name, fst->pos, remaining);
++		len = open_and_load_features_file(dirfd, name, fst->pos, remaining);
+ 		if (len < 0)
+ 			return -1;
+ 
+@@ -429,7 +446,7 @@ int aa_features_new(aa_features **features, int dirfd, const char *path)
+ 
+ 	retval = S_ISDIR(stat_file.st_mode) ?
+ 		 load_features_dir(dirfd, path, f->string, STRING_SIZE) :
+-		 load_features_file(dirfd, path, f->string, STRING_SIZE);
++		 open_and_load_features_file(dirfd, path, f->string, STRING_SIZE);
+ 	if (retval == -1) {
+ 		aa_features_unref(f);
+ 		return -1;
+@@ -492,6 +509,48 @@ int aa_features_new_from_string(aa_features **features,
+ 	return 0;
+ }
+ 
++/**
++ * aa_features_new_from_file - create a new aa_features object based on an open file
++ * @features: will point to the address of an allocated and initialized
++ *            aa_features object upon success
++ * @file: file to load features from
++ *
++ * Returns: 0 on success, -1 on error with errno set and *@features pointing to
++ *          NULL
++ */
++int aa_features_new_from_file(aa_features **features, int file)
++{
++	aa_features *f;
++	ssize_t retval;
++
++	*features = NULL;
++
++	f = calloc(1, sizeof(*f));
++	if (!f) {
++		errno = ENOMEM;
++		return -1;
++	}
++	aa_features_ref(f);
++
++	retval = load_features_file(file, f->string, STRING_SIZE);
++	if (retval == -1) {
++		aa_features_unref(f);
++		return -1;
++	}
++
++	if (init_features_hash(f) == -1) {
++		int save = errno;
++
++		aa_features_unref(f);
++		errno = save;
++		return -1;
++	}
++
++	*features = f;
++
++	return 0;
++}
++
+ /**
+  * aa_features_new_from_kernel - create a new aa_features object based on the current kernel
+  * @features: will point to the address of an allocated and initialized
+diff --git a/parser/Makefile b/parser/Makefile
+index 5d799f6a1..b1f50692a 100644
+--- a/parser/Makefile
++++ b/parser/Makefile
+@@ -78,7 +78,7 @@ SRCS = parser_common.c parser_include.c parser_interface.c parser_lex.c \
+        parser_yacc.c parser_regex.c parser_variable.c parser_policy.c \
+        parser_alias.c common_optarg.c lib.c network.c \
+        mount.cc dbus.cc profile.cc rule.cc signal.cc ptrace.cc \
+-       af_rule.cc af_unix.cc policy_cache.c
++       af_rule.cc af_unix.cc policy_cache.c default_features.c
+ HDRS = parser.h parser_include.h immunix.h mount.h dbus.h lib.h profile.h \
+        rule.h common_optarg.h signal.h ptrace.h network.h af_rule.h af_unix.h \
+        policy_cache.h
+@@ -259,6 +259,9 @@ ptrace.o: ptrace.cc ptrace.h parser.h immunix.h parser_yacc.h rule.h $(APPARMOR_
+ network.o: network.c network.h parser.h immunix.h parser_yacc.h rule.h af_names.h $(APPARMOR_H)
+ 	$(CXX) $(EXTRA_CFLAGS) -c -o $@ $<
+ 
++default_features.o: default_features.c parser.h
++	$(CXX) $(EXTRA_CFLAGS) -c -o $@ $<
++
+ af_rule.o: af_rule.cc af_rule.h network.h parser.h profile.h immunix.h parser_yacc.h rule.h $(APPARMOR_H)
+ 	$(CXX) $(EXTRA_CFLAGS) -c -o $@ $<
+ 
+diff --git a/parser/apparmor.d.pod b/parser/apparmor.d.pod
+index db904edde..765ecd5a9 100644
+--- a/parser/apparmor.d.pod
++++ b/parser/apparmor.d.pod
+@@ -46,7 +46,7 @@ to the policy; this behaviour is modelled after cpp(1).
+ 
+ B<PROFILE FILE> = ( [ I<PREAMBLE> ] [ I<PROFILE> ] )*
+ 
+-B<PREAMBLE> = ( I<COMMENT> | I<VARIABLE ASSIGNMENT> | I<ALIAS RULE> | I<INCLUDE> )*
++B<PREAMBLE> = ( I<COMMENT> | I<VARIABLE ASSIGNMENT> | I<ALIAS RULE> | I<INCLUDE> | I<ABI> )*
+   Variable assignment and alias rules must come before the profile.
+ 
+ B<VARIABLE ASSIGNMENT> = I<VARIABLE> ('=' | '+=') (space separated values)
+@@ -57,6 +57,8 @@ B<ALIAS RULE> = 'alias' I<ABS PATH> '-E<gt>' I<REWRITTEN ABS PATH> ','
+ 
+ B<INCLUDE> = ( '#include' | 'include' ) [ 'if exists' ] ( I<ABS PATH> | I<MAGIC PATH> )
+ 
++B<ABI> = ( 'abi' ) ( I<ABS PATH> | I<MAGIC PATH> ) ','
++
+ B<ABS PATH> = '"' path '"' (the path is passed to open(2))
+ 
+ B<MAGIC PATH> = 'E<lt>' relative path 'E<gt>'
+@@ -1526,10 +1528,35 @@ starting the profile definition. The aa-autodep(8) and aa-genprof(8) utilities
+ will automatically emit B<#include E<lt>tunables/globalE<gt>> in
+ generated profiles.
+ 
++=head2 Feature ABI
++
++The feature abi tells AppArmor which feature set the policy was
++developed under. This is important to ensure that kernels with a
++different feature set don't enforce features that the policy doesn't
++support, which can result in unexpected application failures.
++
++When policy is compiled both the kernel feature abi and policy feature
++abi are consulted to build a policy that will work for the system's
++kernel.
++
++If the kernel supports a feature not supported by the policy then
++policy will be built so that the kernel does NOT enforce that feature.
++
++If the policy supports a feature not supported by the kernel the
++compile may downgrade the rule with the feature to something the
++kernel supports, drop the rule completely, or fail the compile.
++
++If the policy abi is specified as B<kernel> then the running kernel's
++abi will be used. This should never be used in shipped policy as it
++can cause system breakage when a new kernel is installed.
++
+ =head1 EXAMPLE
+ 
+ An example AppArmor profile:
+ 
++	# which feature abi the policy was developed with
++        abi <abi/3.0>,
++
+ 	# a variable definition in the preamble
+ 	@{HOME} = /home/*/ /root/
+ 
+diff --git a/parser/default_features.c b/parser/default_features.c
+new file mode 100644
+index 000000000..2cf2792f2
+--- /dev/null
++++ b/parser/default_features.c
+@@ -0,0 +1,193 @@
++/*
++ * This file contains a set of old feature files that are used under different
++ * circumstances.
++ *
++ * match_n_abi: feature abi for oldest match_file (pre features) abi.
++ *
++ * match_c_abi: features abi for match_file (pre features) abi that supports
++ *              create.
++ *
++ * match_cn_abi: features abi for match_file (pre features) abi that supports
++ *               create and network.
++ *
++ * default_features_abi: is the feature abi used when policy is not tagged
++ *                       with an abi and no featuere-abi was specified to the
++ *                       parser.
++ */
++
++#include "parser.h"
++
++
++const char *match_n_abi =
++  "caps {mask {chown dac_override dac_read_search fowner fsetid kill setgid setuid setpcap linux_immutable net_bind_service net_broadcast net_admin net_raw ipc_lock ipc_owner sys_module sys_rawio sys_chroot sys_ptrace sys_pacct sys_admin sys_boot sys_nice sys_resource sys_time sys_tty_config mknod lease audit_write audit_control setfcap mac_override mac_admin syslog wake_alarm block_suspend audit_read\
++}\
++}\
++rlimit {mask {cpu fsize data stack core rss nproc nofile memlock as locks sigpending msgqueue nice rtprio rttime\
++}\
++}\
++capability {0xffffff\
++}\
++network {af_unix {yes\
++}\
++af_mask {unspec unix inet ax25 ipx appletalk netrom bridge atmpvc x25 inet6 rose netbeui security key netlink packet ash econet atmsvc rds sna irda pppox wanpipe llc ib mpls can tipc bluetooth iucv rxrpc isdn phonet ieee802154 caif alg nfc vsock kcm qipcrtr smc xdp\
++}\
++}\
++file {mask {read write exec append mmap_exec link lock\
++}\
++}\
++domain {change_profile {yes\
++}\
++change_onexec {yes\
++}\
++change_hatv {yes\
++}\
++change_hat {yes\
++}\
++}\
++policy {\
++v6 {yes\
++}\
++v5 {yes\
++}\
++}\
++}\
++";
++
++
++/****************************** match_c_abi *******************************/
++const char *match_c_abi =
++"caps {mask {chown dac_override dac_read_search fowner fsetid kill setgid setuid setpcap linux_immutable net_bind_service net_broadcast net_admin net_raw ipc_lock ipc_owner sys_module sys_rawio sys_chroot sys_ptrace sys_pacct sys_admin sys_boot sys_nice sys_resource sys_time sys_tty_config mknod lease audit_write audit_control setfcap mac_override mac_admin syslog wake_alarm block_suspend audit_read\
++}\
++}\
++rlimit {mask {cpu fsize data stack core rss nproc nofile memlock as locks sigpending msgqueue nice rtprio rttime\
++}\
++}\
++capability {0xffffff\
++}\
++file {mask {create read write exec append mmap_exec link lock\
++}\
++}\
++domain {change_profile {yes\
++}\
++change_onexec {yes\
++}\
++change_hatv {yes\
++}\
++change_hat {yes\
++}\
++}\
++policy {\
++v6 {yes\
++}\
++v5 {yes\
++}\
++}\
++}\
++";
++
++/****************************** match_cn_abi ******************************/
++const char *match_cn_abi =
++"caps {mask {chown dac_override dac_read_search fowner fsetid kill setgid setuid setpcap linux_immutable net_bind_service net_broadcast net_admin net_raw ipc_lock ipc_owner sys_module sys_rawio sys_chroot sys_ptrace sys_pacct sys_admin sys_boot sys_nice sys_resource sys_time sys_tty_config mknod lease audit_write audit_control setfcap mac_override mac_admin syslog wake_alarm block_suspend audit_read\
++}\
++}\
++rlimit {mask {cpu fsize data stack core rss nproc nofile memlock as locks sigpending msgqueue nice rtprio rttime\
++}\
++}\
++capability {0xffffff\
++}\
++network {af_unix {yes\
++}\
++af_mask {unspec unix inet ax25 ipx appletalk netrom bridge atmpvc x25 inet6 rose netbeui security key netlink packet ash econet atmsvc rds sna irda pppox wanpipe llc ib mpls can tipc bluetooth iucv rxrpc isdn phonet ieee802154 caif alg nfc vsock kcm qipcrtr smc xdp\
++}\
++}\
++file {mask {create read write exec append mmap_exec link lock\
++}\
++}\
++domain {change_profile {yes\
++}\
++change_onexec {yes\
++}\
++change_hatv {yes\
++}\
++change_hat {yes\
++}\
++}\
++policy {\
++v6 {yes\
++}\
++v5 {yes\
++}\
++}\
++}\
++";
++
++
++/************************** deafult_features_abi ***************************/
++
++const char *default_features_abi =
++"query {label {multi_transaction {yes\
++}\
++data {yes\
++}\
++perms {allow deny audit quiet\
++}\
++}\
++}\
++signal {mask {hup int quit ill trap abrt bus fpe kill usr1 segv usr2 pipe alrm term stkflt chld cont stop stp ttin ttou urg xcpu xfsz vtalrm prof winch io pwr sys emt lost\
++}\
++}\
++ptrace {mask {read trace\
++}\
++}\
++caps {mask {chown dac_override dac_read_search fowner fsetid kill setgid setuid setpcap linux_immutable net_bind_service net_broadcast net_admin net_raw ipc_lock ipc_owner sys_module sys_rawio sys_chroot sys_ptrace sys_pacct sys_admin sys_boot sys_nice sys_resource sys_time sys_tty_config mknod lease audit_write audit_control setfcap mac_override mac_admin syslog wake_alarm block_suspend audit_read\
++}\
++}\
++rlimit {mask {cpu fsize data stack core rss nproc nofile memlock as locks sigpending msgqueue nice rtprio rttime\
++}\
++}\
++capability {0xffffff\
++}\
++namespaces {pivot_root {no\
++}\
++profile {yes\
++}\
++}\
++mount {mask {mount umount pivot_root\
++}\
++}\
++file {mask {create read write exec append mmap_exec link lock\
++}\
++}\
++domain {version {1.2\
++}\
++}\
++computed_longest_left {yes\
++}\
++post_nnp_subset {yes\
++}\
++fix_binfmt_elf_mmap {yes\
++}\
++stack {yes\
++}\
++change_profile {yes\
++}\
++change_onexec {yes\
++}\
++change_hatv {yes\
++}\
++change_hat {yes\
++}\
++}\
++policy {set_load {yes\
++}\
++versions {v8 {yes\
++}\
++v7 {yes\
++}\
++v6 {yes\
++}\
++v5 {yes\
++}\
++}\
++}\
++";
+diff --git a/parser/parser.h b/parser/parser.h
+index acb8069da..008cbb03f 100644
+--- a/parser/parser.h
++++ b/parser/parser.h
+@@ -295,6 +295,9 @@ extern uint32_t policy_version;
+ extern uint32_t parser_abi_version;
+ extern uint32_t kernel_abi_version;
+ 
++extern aa_features *policy_features;
++extern aa_features *kernel_features;
++
+ extern int force_complain;
+ extern int perms_create;
+ extern int net_af_max_override;
+@@ -471,4 +474,13 @@ void dump_policy(void);
+ 
+ void free_policies(void);
+ 
++/* parser_main.c */
++extern void set_supported_features();
++
++/* default_features.c */
++extern const char *match_n_abi;
++extern const char *match_c_abi;
++extern const char *match_cn_abi;
++extern const char *default_features_abi;
++
+ #endif /** __AA_PARSER_H */
+diff --git a/parser/parser_common.c b/parser/parser_common.c
+index 3ce8cdc57..f99946453 100644
+--- a/parser/parser_common.c
++++ b/parser/parser_common.c
+@@ -65,14 +65,14 @@ int perms_create = 0;                   /* perms contain create flag */
+ int net_af_max_override = -1;           /* use kernel to determine af_max */
+ int kernel_load = 1;
+ int kernel_supports_setload = 0;	/* kernel supports atomic set loads */
+-int features_supports_network = 0;        /* kernel supports network rules */
++int features_supports_network = 0;	/* kernel supports network rules */
+ int features_supports_unix = 0;		/* kernel supports unix socket rules */
+ int kernel_supports_policydb = 0;	/* kernel supports new policydb */
+-int features_supports_mount = 0;	        /* kernel supports mount rules */
++int features_supports_mount = 0;	/* kernel supports mount rules */
+ int features_supports_dbus = 0;		/* kernel supports dbus rules */
+ int kernel_supports_diff_encode = 0;	/* kernel supports diff_encode */
+-int features_supports_signal = 0;		/* kernel supports signal rules */
+-int features_supports_ptrace = 0;		/* kernel supports ptrace rules */
++int features_supports_signal = 0;	/* kernel supports signal rules */
++int features_supports_ptrace = 0;	/* kernel supports ptrace rules */
+ int features_supports_stacking = 0;	/* kernel supports stacking */
+ int conf_verbose = 0;
+ int conf_quiet = 0;
+diff --git a/parser/parser_lex.l b/parser/parser_lex.l
+index 22db7e742..6b6f7c234 100644
+--- a/parser/parser_lex.l
++++ b/parser/parser_lex.l
+@@ -188,6 +188,25 @@ void include_filename(char *filename, int search, bool if_exists)
+ 	}
+ }
+ 
++static char *lsntrim(char *s, int l)
++{
++	const char *end = s + l;
++
++	while (s <= end && isspace(*s))
++		s++;
++	return s;
++}
++
++static int rsntrim(const char *s, int l)
++{
++	const char *r = s + l;
++
++	while (r > s && isspace(*--r))
++		l--;
++	return l;
++}
++
++
+ %}
+ 
+ CARET		"^"
+@@ -206,6 +225,8 @@ NUMBER		[[:digit:]]+
+ ID_CHARS	[^ \t\r\n"!,]
+ ID 		{ID_CHARS}|(,{ID_CHARS}|\\[ ]|\\\t|\\\"|\\!|\\,)
+ IDS		{ID}+
++INC_ID 		[^ \t\r\n"!,<>]|(,[^ \t\r\n"!,<>]|\\[ ]|\\\t|\\\"|\\!|\\,)
++INC_IDS		{INC_ID}+
+ POST_VAR_ID_CHARS	[^ \t\n"!,]{-}[=\+]
+ POST_VAR_ID 	{POST_VAR_ID_CHARS}|(,{POST_VAR_ID_CHARS}|\\[ ]|\\\t|\\\"|\\!|\\,|\\\(|\\\))
+ LIST_VALUE_ID_CHARS	([^ \t\n"!,]{-}[()]|\\[ ]|\\\t|\\\"|\\!|\\,|\\\(|\\\))
+@@ -274,7 +295,7 @@ LT_EQUAL	<=
+ 	}
+ %}
+ 
+-<INITIAL,SUB_ID_WS,INCLUDE,INCLUDE_EXISTS,LIST_VAL_MODE,EXTCOND_MODE,LIST_COND_VAL,LIST_COND_PAREN_VAL,LIST_COND_MODE,EXTCONDLIST_MODE,ASSIGN_MODE,NETWORK_MODE,CHANGE_PROFILE_MODE,RLIMIT_MODE,MOUNT_MODE,DBUS_MODE,SIGNAL_MODE,PTRACE_MODE,UNIX_MODE>{
++<INITIAL,SUB_ID_WS,INCLUDE,INCLUDE_EXISTS,LIST_VAL_MODE,EXTCOND_MODE,LIST_COND_VAL,LIST_COND_PAREN_VAL,LIST_COND_MODE,EXTCONDLIST_MODE,ASSIGN_MODE,NETWORK_MODE,CHANGE_PROFILE_MODE,RLIMIT_MODE,MOUNT_MODE,DBUS_MODE,SIGNAL_MODE,PTRACE_MODE,UNIX_MODE,ABI_MODE>{
+ 	{WS}+	{  DUMP_PREPROCESS; /* Ignoring whitespace */ }
+ }
+ 
+@@ -317,15 +338,21 @@ LT_EQUAL	<=
+ }
+ 
+ <ABI_MODE>{
+-	(\<(([^"\>\t\r\n]+)|{QUOTED_ID})\>|{QUOTED_ID}|{IDS})	{ /* <filename> | <"filename"> | "filename" | filename */
++	(\<((([^"\>\t\r\n])+)|{QUOTED_ID})\>|{QUOTED_ID}|({INC_IDS}))	{ /* <filename> | <"filename"> | "filename" | filename */
+ 		int lt = *yytext == '<'  ? 1 : 0;
+-		char *filename = processid(yytext + lt, yyleng - lt*2);
++		int len = yyleng - lt*2;
++		char *s = yytext + lt;
++		char * filename = lsntrim(s, yyleng);
+ 		bool exists = YYSTATE == INCLUDE_EXISTS;
+ 
++		filename = processid(filename, rsntrim(filename, len - (filename - s)));
+ 		if (!filename)
+ 			yyerror(_("Failed to process filename\n"));
+ 		yylval.id = filename;
+-		POP_AND_RETURN(TOK_ID);
++		if (lt)
++			RETURN_TOKEN(TOK_ID);
++		else
++			RETURN_TOKEN(TOK_VALUE);
+ 	}
+ }
+ 
+@@ -689,7 +716,7 @@ include/{WS}	{
+ 	PUSH_AND_RETURN(state, token);
+ }
+ 
+-<INITIAL,NETWORK_MODE,RLIMIT_MODE,CHANGE_PROFILE_MODE,MOUNT_MODE,DBUS_MODE,SIGNAL_MODE,PTRACE_MODE,UNIX_MODE>{
++<INITIAL,NETWORK_MODE,RLIMIT_MODE,CHANGE_PROFILE_MODE,MOUNT_MODE,DBUS_MODE,SIGNAL_MODE,PTRACE_MODE,UNIX_MODE,ABI_MODE>{
+ 	{END_OF_RULE}	{
+ 		if (YY_START != INITIAL)
+ 			POP_NODUMP();
+diff --git a/parser/parser_main.c b/parser/parser_main.c
+index c6ae83fdf..caf7de97c 100644
+--- a/parser/parser_main.c
++++ b/parser/parser_main.c
+@@ -19,6 +19,7 @@
+  *   Ltd.
+  */
+ 
++#include <assert.h>
+ #include <ctype.h>
+ #include <stdio.h>
+ #include <string.h>
+@@ -108,8 +109,9 @@ static const char *cacheloc[MAX_CACHE_LOCS];
+ static int cacheloc_n = 0;
+ static bool print_cache_dir = false;
+ 
+-static aa_features *policy_features = NULL;
+-static aa_features *kernel_features = NULL;
++aa_features *policy_features = NULL;
++bool specified_policy_features = false;
++aa_features *kernel_features = NULL;
+ 
+ static const char *config_file = "/etc/apparmor/parser.conf";
+ 
+@@ -538,6 +540,7 @@ static int process_arg(int c, char *optarg)
+ 			exit(1);
+ 		}
+ 		kernel_features = aa_features_ref(policy_features);
++		specified_policy_features = true;
+ 		break;
+ 	case 'M':
+ 		if (policy_features)
+@@ -551,6 +554,7 @@ static int process_arg(int c, char *optarg)
+ 			exit(1);
+ 		}
+ 		kernel_features = aa_features_ref(policy_features);
++		specified_policy_features = true;
+ 		break;
+ 	case 138:
+ 		if (kernel_features)
+@@ -565,12 +569,19 @@ static int process_arg(int c, char *optarg)
+ 	case 139:
+ 		if (policy_features)
+ 			aa_features_unref(policy_features);
+-		if (aa_features_new(&policy_features, AT_FDCWD, optarg)) {
++		if (strcmp(optarg, "<kernel>") == 0) {
++			if (aa_features_new_from_kernel(&policy_features)) {
++				fprintf(stderr,
++					"Failed to load kernel features into the policy-features abi: %m\n");
++				exit(1);
++			}
++		} else if (aa_features_new(&policy_features, AT_FDCWD, optarg)) {
+ 			fprintf(stderr,
+-				"Failed to load compile features from '%s': %m\n",
++				"Failed to load policy-features from '%s': %m\n",
+ 				optarg);
+ 			exit(1);
+ 		}
++		specified_policy_features = true;
+ 		break;
+ 	case 'q':
+ 		conf_verbose = 0;
+@@ -752,7 +763,7 @@ int features_intersect(aa_features *a, aa_features *b, const char *str)
+ 	return aa_features_supports(a, str) && aa_features_supports(b, str);
+ }
+ 
+-static void set_features_by_match_file(void)
++static bool set_features_by_match_file(struct aa_features **features)
+ {
+ 	autofclose FILE *ms = fopen(MATCH_FILE, "r");
+ 	if (ms) {
+@@ -762,20 +773,29 @@ static void set_features_by_match_file(void)
+ 		if (!fgets(match_string, 1000, ms))
+ 			goto no_match;
+ 		if (strstr(match_string, " perms=c"))
+-			perms_create = 1;
+-		features_supports_network = 1;
+-		return;
++			return aa_features_new_from_string(features,
++							   match_cn_abi,
++							   strlen(match_cn_abi)) == 0;
++
++		return aa_features_new_from_string(features, match_n_abi,
++						   strlen(match_n_abi)) == 0;
+ 	}
+ no_match:
+-	perms_create = 1;
++	/* either extremely old kernel or a container without the interfaces
++	 * mounted
++	 */
++	return aa_features_new_from_string(features, match_c_abi,
++					  strlen(match_c_abi)) == 0;
+ }
+ 
+-static void set_supported_features(aa_features *kernel_features unused)
++void set_supported_features()
+ {
++	assert(kernel_features != NULL);
++
+ 	/* has process_args() already assigned a match string? */
+-	if (!policy_features && aa_features_new_from_kernel(&policy_features) == -1) {
+-		set_features_by_match_file();
+-		return;
++	if (!policy_features) {
++		policy_features = aa_features_ref(kernel_features);
++
+ 	}
+ 
+ 	/*
+@@ -783,29 +803,26 @@ static void set_supported_features(aa_features *kernel_features unused)
+ 	 * rule down grades for a give kernel
+ 	 */
+ 	perms_create = 1;
+-	kernel_supports_policydb = aa_features_supports(kernel_features, "file");
+-	features_supports_network = features_intersect(kernel_features, policy_features, "network");
+-	features_supports_unix = features_intersect(kernel_features, policy_features,
++	features_supports_network = features_intersect(kernel_features,
++						       policy_features,
++						       "network");
++	features_supports_unix = features_intersect(kernel_features,
++						    policy_features,
+ 						    "network/af_unix");
+-	features_supports_mount = features_intersect(kernel_features, policy_features, "mount");
+-	features_supports_dbus = features_intersect(kernel_features, policy_features, "dbus");
+-	features_supports_signal = features_intersect(kernel_features, policy_features, "signal");
+-	features_supports_ptrace = features_intersect(kernel_features, policy_features, "ptrace");
+-	kernel_supports_setload = aa_features_supports(kernel_features,
+-						       "policy/set_load");
+-	kernel_supports_diff_encode = aa_features_supports(kernel_features,
+-							   "policy/diff_encode");
+-	features_supports_stacking = aa_features_supports(policy_features,
++	features_supports_mount = features_intersect(kernel_features,
++						     policy_features,
++						     "mount");
++	features_supports_dbus = features_intersect(kernel_features,
++						    policy_features, "dbus");
++	features_supports_signal = features_intersect(kernel_features,
++						      policy_features,
++						      "signal");
++	features_supports_ptrace = features_intersect(kernel_features,
++						      policy_features,
++						      "ptrace");
++	features_supports_stacking = features_intersect(kernel_features,
++							policy_features,
+ 							"domain/stack");
+-
+-	if (aa_features_supports(kernel_features, "policy/versions/v7"))
+-		kernel_abi_version = 7;
+-	else if (aa_features_supports(kernel_features, "policy/versions/v6"))
+-		kernel_abi_version = 6;
+-
+-	if (!kernel_supports_diff_encode)
+-		/* clear diff_encode because it is not supported */
+-		dfaflags &= ~DFA_CONTROL_DIFF_ENCODE;
+ }
+ 
+ static bool do_print_cache_dir(aa_features *features, int dirfd, const char *path)
+@@ -898,6 +915,10 @@ void reset_parser(const char *filename)
+ 	free_symtabs();
+ 	free_policies();
+ 	reset_include_stack(filename);
++	if (!specified_policy_features) {
++		aa_features_unref(policy_features);
++		policy_features = NULL;
++	}
+ }
+ 
+ int test_for_dir_mode(const char *basename, const char *linkdir)
+@@ -1260,19 +1281,37 @@ static int binary_dir_cb(int dirfd unused, const char *name, struct stat *st,
+ 	return rc;
+ }
+ 
+-static void setup_flags(void)
++static bool get_kernel_features(struct aa_features **features)
+ {
+ 	/* Gracefully handle AppArmor kernel without compatibility patch */
+-	if (!kernel_features && aa_features_new_from_kernel(&kernel_features) == -1) {
++	if (!kernel_features && aa_features_new_from_kernel(features) == -1) {
+ 		PERROR("Cache read/write disabled: interface file missing. "
+ 			"(Kernel needs AppArmor 2.4 compatibility patch.)\n");
+ 		write_cache = 0;
+ 		skip_read_cache = 1;
+-		return;
++
++		/* Fall back to older match file */
++		if (!set_features_by_match_file(features))
++			return false;
+ 	}
+ 
+-	/* Get the match string to determine type of regex support needed */
+-	set_supported_features(kernel_features);
++	/* At this point we have features, extra commonly used values  */
++	kernel_supports_policydb = aa_features_supports(*features, "file");
++	kernel_supports_setload = aa_features_supports(*features,
++						       "policy/set_load");
++	kernel_supports_diff_encode = aa_features_supports(*features,
++							   "policy/diff_encode");
++
++	if (aa_features_supports(*features, "policy/versions/v7"))
++		kernel_abi_version = 7;
++	else if (aa_features_supports(*features, "policy/versions/v6"))
++		kernel_abi_version = 6;
++
++	if (!kernel_supports_diff_encode)
++		/* clear diff_encode because it is not supported */
++		dfaflags &= ~DFA_CONTROL_DIFF_ENCODE;
++
++	return true;
+ }
+ 
+ int main(int argc, char *argv[])
+@@ -1306,7 +1345,10 @@ int main(int argc, char *argv[])
+ 
+ 	if (!binary_input) parse_default_paths();
+ 
+-	setup_flags();
++	if (!get_kernel_features(&kernel_features)) {
++		PERROR(_("Kernel features abi not found"));
++		return 1;
++	}
+ 
+ 	if (!(UNPRIVILEGED_OPS) &&
+ 	    aa_kernel_interface_new(&kernel_interface, kernel_features, apparmorfs) == -1) {
+diff --git a/parser/parser_yacc.y b/parser/parser_yacc.y
+index cc4eb80a9..90021d81f 100644
+--- a/parser/parser_yacc.y
++++ b/parser/parser_yacc.y
+@@ -32,6 +32,7 @@
+ 
+ /* #define DEBUG */
+ 
++#include "lib.h"
+ #include "parser.h"
+ #include "profile.h"
+ #include "mount.h"
+@@ -81,6 +82,7 @@ mnt_rule *do_mnt_rule(struct cond_entry *src_conds, char *src,
+ 		      int mode);
+ mnt_rule *do_pivot_rule(struct cond_entry *old, char *root,
+ 			char *transition);
++static void abi_features(char *filename, bool search);
+ void add_local_entry(Profile *prof);
+ 
+ %}
+@@ -285,8 +287,22 @@ void add_local_entry(Profile *prof);
+ %%
+ 
+ 
+-list:	 preamble profilelist
+-	{ /* nothing */ };
++list:	 preamble
++	{
++		/* make sure abi is setup */
++		if (policy_features == NULL) {
++			/* use default feature abi */
++			if (aa_features_new_from_string(&policy_features,
++					default_features_abi,
++					strlen(default_features_abi))) {
++				yyerror(_("Failed to setup default policy feature abi"));
++			}
++			pwarn(_("%s: File '%s' missing feature abi, falling back to default policy feature abi\n"), progname, current_filename);
++		}
++		set_supported_features();
++
++	}
++	profilelist;
+ 
+ profilelist:	{ /* nothing */ };
+ 
+@@ -1073,9 +1089,16 @@ rule: file_rule { $$ = $1; }
+ 
+ abi_rule: TOK_ABI TOK_ID TOK_END_OF_RULE
+ 	{
+-		pwarn(_("%s: Profile abi not supported, falling back to system abi.\n"), progname);
++		abi_features($2, true);
+ 		free($2);
+-	};
++		/* $$ = nothing, not used */
++	}
++	| TOK_ABI TOK_VALUE TOK_END_OF_RULE
++	{
++		abi_features($2, false);
++		free($2);
++		/* $$ = nothing, not used */
++	}
+ 
+ opt_exec_mode: { /* nothing */ $$ = EXEC_MODE_EMPTY; }
+ 	| TOK_UNSAFE { $$ = EXEC_MODE_UNSAFE; };
+@@ -1705,3 +1728,53 @@ mnt_rule *do_pivot_rule(struct cond_entry *old, char *root, char *transition)
+ 
+ 	return ent;
+ }
++
++static int abi_features_base(struct aa_features **features, char *filename, bool search)
++{
++	autofclose FILE *f = NULL;
++	struct stat my_stat;
++	char *fullpath = NULL;
++
++	if (search) {
++		if (strcmp(filename, "kernel") == 0)
++			return aa_features_new_from_kernel(features);
++		f = search_path(filename, &fullpath);
++		PDEBUG("abi lookup '%s' -> '%s' f %p\n", filename, fullpath, f);
++	} else {
++		f = fopen(filename, "r");
++		PDEBUG("abi relpath '%s' f %p\n", filename, f);
++	}
++
++	if (!f) {
++		yyerror(_("Could not open '%s': %m"),
++                        fullpath ? fullpath: filename);
++	}
++
++	if (fstat(fileno(f), &my_stat))
++		yyerror(_("fstat failed for '%s': %m"), fullpath ? fullpath : filename);
++
++        if (S_ISREG(my_stat.st_mode)) {
++		return aa_features_new_from_file(features, fileno(f));
++	}
++
++	return -1;
++}
++
++static void abi_features(char *filename, bool search)
++{
++	struct aa_features *tmp_features;
++
++	if (abi_features_base(&tmp_features, filename, search) == -1) {
++			yyerror(_("failed to find features abi '%s': %m"), filename);
++	}
++	if (policy_features) {
++		if (!aa_features_is_equal(tmp_features, policy_features)) {
++			pwarn(_("%s: %s features abi '%s' differes from policy declared feature abi, using the features abi declared in policy\n"), progname, current_filename, filename);
++		}
++		aa_features_unref(tmp_features);
++	} else {
++		/* first features abi declaration */
++		policy_features = tmp_features;
++	}
++
++};
+diff --git a/parser/tst/simple_tests/abi/bad_1.sd b/parser/tst/simple_tests/abi/bad_1.sd
+index 1070ed76d..1f2e58ae7 100644
+--- a/parser/tst/simple_tests/abi/bad_1.sd
++++ b/parser/tst/simple_tests/abi/bad_1.sd
+@@ -3,7 +3,7 @@
+ #=EXRESULT FAIL
+ #=TODO
+ 
+-abi "abi/4.19,
++abi "simple_tests/includes/abi/4.19,
+ 
+ /does/not/exist {
+ }
+diff --git a/parser/tst/simple_tests/abi/bad_6.sd b/parser/tst/simple_tests/abi/bad_6.sd
+index eab0b1bde..c3031bccd 100644
+--- a/parser/tst/simple_tests/abi/bad_6.sd
++++ b/parser/tst/simple_tests/abi/bad_6.sd
+@@ -1,9 +1,9 @@
+ #
+ #=DESCRIPTION abi testing - abi path
+ #=EXRESULT FAIL
+-#=TODO
++#=
+ 
+-abi <abi/4.19,
++abi <includes/abi/4.19,
+ 
+ /does/not/exist {
+ }
+diff --git a/parser/tst/simple_tests/abi/ok_1.sd b/parser/tst/simple_tests/abi/ok_1.sd
+index 510e3171f..46c6b96a7 100644
+--- a/parser/tst/simple_tests/abi/ok_1.sd
++++ b/parser/tst/simple_tests/abi/ok_1.sd
+@@ -3,7 +3,7 @@
+ #=EXRESULT PASS
+ #
+ 
+-abi "abi/4.19",
++abi "simple_tests/includes/abi/4.19",
+ 
+ /does/not/exist {
+ }
+diff --git a/parser/tst/simple_tests/abi/ok_10.sd b/parser/tst/simple_tests/abi/ok_10.sd
+index 9a9dee5ab..1daf84d85 100644
+--- a/parser/tst/simple_tests/abi/ok_10.sd
++++ b/parser/tst/simple_tests/abi/ok_10.sd
+@@ -4,7 +4,7 @@
+ #=TODO
+ #=DISABLED - results in "superfluous TODO", but fails after removing TODO
+ 
+-abi < "abi/4.19">,
++abi < "includes/abi/4.19">,
+ 
+ /does/not/exist {
+ }
+diff --git a/parser/tst/simple_tests/abi/ok_11.sd b/parser/tst/simple_tests/abi/ok_11.sd
+index 301f26d4e..a47cf6efa 100644
+--- a/parser/tst/simple_tests/abi/ok_11.sd
++++ b/parser/tst/simple_tests/abi/ok_11.sd
+@@ -3,7 +3,7 @@
+ #=EXRESULT PASS
+ #=DISABLED
+ 
+-abi <"abi/4.19" >,
++abi <"includes/abi/4.19" >,
+ 
+ /does/not/exist {
+ }
+diff --git a/parser/tst/simple_tests/abi/ok_12.sd b/parser/tst/simple_tests/abi/ok_12.sd
+index 1433575a5..00a563f5c 100644
+--- a/parser/tst/simple_tests/abi/ok_12.sd
++++ b/parser/tst/simple_tests/abi/ok_12.sd
+@@ -4,7 +4,7 @@
+ #=TODO
+ #=DISABLED - results in "superfluous TODO", but fails after removing TODO
+ 
+-abi < "abi/4.19" >,
++abi < "includes/abi/4.19" >,
+ 
+ /does/not/exist {
+ }
+diff --git a/parser/tst/simple_tests/abi/ok_13.sd b/parser/tst/simple_tests/abi/ok_13.sd
+index 80e5d9965..6615b6c0a 100644
+--- a/parser/tst/simple_tests/abi/ok_13.sd
++++ b/parser/tst/simple_tests/abi/ok_13.sd
+@@ -3,7 +3,7 @@
+ #=EXRESULT PASS
+ #
+ 
+-abi <"abi/4.19 ubuntu">,
++abi <"includes/abi/4.19 ubuntu">,
+ 
+ /does/not/exist {
+ }
+diff --git a/parser/tst/simple_tests/abi/ok_14.sd b/parser/tst/simple_tests/abi/ok_14.sd
+index 7af6c0d7b..007174675 100644
+--- a/parser/tst/simple_tests/abi/ok_14.sd
++++ b/parser/tst/simple_tests/abi/ok_14.sd
+@@ -3,7 +3,7 @@
+ #=EXRESULT PASS
+ #
+ 
+-abi <abi/4.19> ,
++abi <includes/abi/4.19> ,
+ 
+ /does/not/exist {
+ }
+diff --git a/parser/tst/simple_tests/abi/ok_15.sd b/parser/tst/simple_tests/abi/ok_15.sd
+index 7233ae838..017c329c7 100644
+--- a/parser/tst/simple_tests/abi/ok_15.sd
++++ b/parser/tst/simple_tests/abi/ok_15.sd
+@@ -3,7 +3,7 @@
+ #=EXRESULT PASS
+ #
+ 
+-abi "abi/4.19" ,
++abi "simple_tests/includes/abi/4.19" ,
+ 
+ /does/not/exist {
+ }
+diff --git a/parser/tst/simple_tests/abi/ok_16.sd b/parser/tst/simple_tests/abi/ok_16.sd
+index 72ed19d07..f312cc753 100644
+--- a/parser/tst/simple_tests/abi/ok_16.sd
++++ b/parser/tst/simple_tests/abi/ok_16.sd
+@@ -3,7 +3,7 @@
+ #=EXRESULT PASS
+ #
+ 
+-abi abi/4.19 ,
++abi simple_tests/includes/abi/4.19 ,
+ 
+ /does/not/exist {
+ }
+diff --git a/parser/tst/simple_tests/abi/ok_17.sd b/parser/tst/simple_tests/abi/ok_17.sd
+index f04b55f59..f39e76c4a 100644
+--- a/parser/tst/simple_tests/abi/ok_17.sd
++++ b/parser/tst/simple_tests/abi/ok_17.sd
+@@ -3,7 +3,7 @@
+ #=EXRESULT PASS
+ #
+ 
+-abi<abi/4.19>,
++abi<includes/abi/4.19>,
+ 
+ /does/not/exist {
+ }
+diff --git a/parser/tst/simple_tests/abi/ok_18.sd b/parser/tst/simple_tests/abi/ok_18.sd
+index 013434ae9..53d1a1599 100644
+--- a/parser/tst/simple_tests/abi/ok_18.sd
++++ b/parser/tst/simple_tests/abi/ok_18.sd
+@@ -3,7 +3,7 @@
+ #=EXRESULT PASS
+ #
+ 
+-abi"abi/4.19",
++abi"simple_tests/includes/abi/4.19",
+ 
+ /does/not/exist {
+ }
+diff --git a/parser/tst/simple_tests/abi/ok_2.sd b/parser/tst/simple_tests/abi/ok_2.sd
+index 29790dea0..4162a06b6 100644
+--- a/parser/tst/simple_tests/abi/ok_2.sd
++++ b/parser/tst/simple_tests/abi/ok_2.sd
+@@ -3,7 +3,7 @@
+ #=EXRESULT PASS
+ #
+ 
+-abi "abi/4.19 ubuntu",
++abi "simple_tests/includes/abi/4.19 ubuntu",
+ 
+ /does/not/exist {
+ }
+diff --git a/parser/tst/simple_tests/abi/ok_20.sd b/parser/tst/simple_tests/abi/ok_20.sd
+index 2855bdc9f..d4c38a9e0 100644
+--- a/parser/tst/simple_tests/abi/ok_20.sd
++++ b/parser/tst/simple_tests/abi/ok_20.sd
+@@ -5,6 +5,6 @@
+ 
+ 
+ /does/not/exist {
+-  abi <abi/4.19>,
++  abi <includes/abi/4.19>,
+ 
+ }
+diff --git a/parser/tst/simple_tests/abi/ok_21.sd b/parser/tst/simple_tests/abi/ok_21.sd
+index 51c906d37..dc6051f8d 100644
+--- a/parser/tst/simple_tests/abi/ok_21.sd
++++ b/parser/tst/simple_tests/abi/ok_21.sd
+@@ -5,6 +5,6 @@
+ 
+ 
+ /does/not/exist {
+-  abi "abi/4.19",
++  abi "simple_tests/includes/abi/4.19",
+ 
+ }
+diff --git a/parser/tst/simple_tests/abi/ok_22.sd b/parser/tst/simple_tests/abi/ok_22.sd
+index 9a0767f59..4233dce40 100644
+--- a/parser/tst/simple_tests/abi/ok_22.sd
++++ b/parser/tst/simple_tests/abi/ok_22.sd
+@@ -5,6 +5,6 @@
+ 
+ 
+ /does/not/exist {
+-  abi abi/4.19,
++  abi simple_tests/includes/abi/4.19,
+ 
+ }
+diff --git a/parser/tst/simple_tests/abi/ok_3.sd b/parser/tst/simple_tests/abi/ok_3.sd
+index e72657557..f986a5a46 100644
+--- a/parser/tst/simple_tests/abi/ok_3.sd
++++ b/parser/tst/simple_tests/abi/ok_3.sd
+@@ -3,7 +3,7 @@
+ #=EXRESULT PASS
+ #
+ 
+-abi "/abi/4.19",
++abi "simple_tests/includes/abi/4.19",
+ 
+ /does/not/exist {
+ }
+diff --git a/parser/tst/simple_tests/abi/ok_4.sd b/parser/tst/simple_tests/abi/ok_4.sd
+index afde28965..f61f58864 100644
+--- a/parser/tst/simple_tests/abi/ok_4.sd
++++ b/parser/tst/simple_tests/abi/ok_4.sd
+@@ -3,7 +3,7 @@
+ #=EXRESULT PASS
+ #
+ 
+-abi "/abi/4.19 ubuntu",
++abi "simple_tests/includes/abi/4.19 ubuntu",
+ 
+ /does/not/exist {
+ }
+diff --git a/parser/tst/simple_tests/abi/ok_5.sd b/parser/tst/simple_tests/abi/ok_5.sd
+index f71a8bbce..a0cb32dd6 100644
+--- a/parser/tst/simple_tests/abi/ok_5.sd
++++ b/parser/tst/simple_tests/abi/ok_5.sd
+@@ -3,7 +3,7 @@
+ #=EXRESULT PASS
+ #
+ 
+-abi abi/4.19,
++abi simple_tests/includes/abi/4.19,
+ 
+ /does/not/exist {
+ }
+diff --git a/parser/tst/simple_tests/abi/ok_6.sd b/parser/tst/simple_tests/abi/ok_6.sd
+index 5e4ca2f67..5fd5e1897 100644
+--- a/parser/tst/simple_tests/abi/ok_6.sd
++++ b/parser/tst/simple_tests/abi/ok_6.sd
+@@ -3,7 +3,7 @@
+ #=EXRESULT PASS
+ #
+ 
+-abi <abi/4.19>,
++abi <includes/abi/4.19>,
+ 
+ /does/not/exist {
+ }
+diff --git a/parser/tst/simple_tests/abi/ok_7.sd b/parser/tst/simple_tests/abi/ok_7.sd
+index e3ef9b82c..5eeff8b9a 100644
+--- a/parser/tst/simple_tests/abi/ok_7.sd
++++ b/parser/tst/simple_tests/abi/ok_7.sd
+@@ -3,7 +3,7 @@
+ #=EXRESULT PASS
+ #
+ 
+-abi < abi/4.19>,
++abi < includes/abi/4.19>,
+ 
+ /does/not/exist {
+ }
+diff --git a/parser/tst/simple_tests/abi/ok_8.sd b/parser/tst/simple_tests/abi/ok_8.sd
+index e5f2d681a..6cbf30b4d 100644
+--- a/parser/tst/simple_tests/abi/ok_8.sd
++++ b/parser/tst/simple_tests/abi/ok_8.sd
+@@ -3,7 +3,7 @@
+ #=EXRESULT PASS
+ #
+ 
+-abi <abi/4.19 >,
++abi <includes/abi/4.19 >,
+ 
+ /does/not/exist {
+ }
+diff --git a/parser/tst/simple_tests/abi/ok_9.sd b/parser/tst/simple_tests/abi/ok_9.sd
+index fb00d0467..f03aab879 100644
+--- a/parser/tst/simple_tests/abi/ok_9.sd
++++ b/parser/tst/simple_tests/abi/ok_9.sd
+@@ -3,7 +3,7 @@
+ #=EXRESULT PASS
+ #
+ 
+-abi < abi/4.19 >,
++abi < includes/abi/4.19 >,
+ 
+ /does/not/exist {
+ }
+diff --git a/parser/tst/simple_tests/includes/abi/4.19 b/parser/tst/simple_tests/includes/abi/4.19
+new file mode 100644
+index 000000000..9f272e6a5
+--- /dev/null
++++ b/parser/tst/simple_tests/includes/abi/4.19
+@@ -0,0 +1,78 @@
++query {label {multi_transaction {yes
++}
++data {yes
++}
++perms {allow deny audit quiet
++}
++}
++}
++dbus {mask {acquire send receive
++}
++}
++signal {mask {hup int quit ill trap abrt bus fpe kill usr1 segv usr2 pipe alrm term stkflt chld cont stop stp ttin ttou urg xcpu xfsz vtalrm prof winch io pwr sys emt lost
++}
++}
++ptrace {mask {read trace
++}
++}
++caps {mask {chown dac_override dac_read_search fowner fsetid kill setgid setuid setpcap linux_immutable net_bind_service net_broadcast net_admin net_raw ipc_lock ipc_owner sys_module sys_rawio sys_chroot sys_ptrace sys_pacct sys_admin sys_boot sys_nice sys_resource sys_time sys_tty_config mknod lease audit_write audit_control setfcap mac_override mac_admin syslog wake_alarm block_suspend audit_read
++}
++}
++rlimit {mask {cpu fsize data stack core rss nproc nofile memlock as locks sigpending msgqueue nice rtprio rttime
++}
++}
++capability {0xffffff
++}
++namespaces {pivot_root {no
++}
++profile {yes
++}
++}
++mount {mask {mount umount pivot_root
++}
++}
++network {af_unix {yes
++}
++af_mask {unspec unix inet ax25 ipx appletalk netrom bridge atmpvc x25 inet6 rose netbeui security key netlink packet ash econet atmsvc rds sna irda pppox wanpipe llc ib mpls can tipc bluetooth iucv rxrpc isdn phonet ieee802154 caif alg nfc vsock kcm qipcrtr smc xdp
++}
++}
++network_v8 {af_mask {unspec unix inet ax25 ipx appletalk netrom bridge atmpvc x25 inet6 rose netbeui security key netlink packet ash econet atmsvc rds sna irda pppox wanpipe llc ib mpls can tipc bluetooth iucv rxrpc isdn phonet ieee802154 caif alg nfc vsock kcm qipcrtr smc xdp
++}
++}
++file {mask {create read write exec append mmap_exec link lock
++}
++}
++domain {version {1.2
++}
++attach_conditions {xattr {yes
++}
++}
++computed_longest_left {yes
++}
++post_nnp_subset {yes
++}
++fix_binfmt_elf_mmap {yes
++}
++stack {yes
++}
++change_profile {yes
++}
++change_onexec {yes
++}
++change_hatv {yes
++}
++change_hat {yes
++}
++}
++policy {set_load {yes
++}
++versions {v8 {yes
++}
++v7 {yes
++}
++v6 {yes
++}
++v5 {yes
++}
++}
++}
+diff --git a/parser/tst/simple_tests/includes/abi/4.19 ubuntu b/parser/tst/simple_tests/includes/abi/4.19 ubuntu
+new file mode 100644
+index 000000000..9f272e6a5
+--- /dev/null
++++ b/parser/tst/simple_tests/includes/abi/4.19 ubuntu	
+@@ -0,0 +1,78 @@
++query {label {multi_transaction {yes
++}
++data {yes
++}
++perms {allow deny audit quiet
++}
++}
++}
++dbus {mask {acquire send receive
++}
++}
++signal {mask {hup int quit ill trap abrt bus fpe kill usr1 segv usr2 pipe alrm term stkflt chld cont stop stp ttin ttou urg xcpu xfsz vtalrm prof winch io pwr sys emt lost
++}
++}
++ptrace {mask {read trace
++}
++}
++caps {mask {chown dac_override dac_read_search fowner fsetid kill setgid setuid setpcap linux_immutable net_bind_service net_broadcast net_admin net_raw ipc_lock ipc_owner sys_module sys_rawio sys_chroot sys_ptrace sys_pacct sys_admin sys_boot sys_nice sys_resource sys_time sys_tty_config mknod lease audit_write audit_control setfcap mac_override mac_admin syslog wake_alarm block_suspend audit_read
++}
++}
++rlimit {mask {cpu fsize data stack core rss nproc nofile memlock as locks sigpending msgqueue nice rtprio rttime
++}
++}
++capability {0xffffff
++}
++namespaces {pivot_root {no
++}
++profile {yes
++}
++}
++mount {mask {mount umount pivot_root
++}
++}
++network {af_unix {yes
++}
++af_mask {unspec unix inet ax25 ipx appletalk netrom bridge atmpvc x25 inet6 rose netbeui security key netlink packet ash econet atmsvc rds sna irda pppox wanpipe llc ib mpls can tipc bluetooth iucv rxrpc isdn phonet ieee802154 caif alg nfc vsock kcm qipcrtr smc xdp
++}
++}
++network_v8 {af_mask {unspec unix inet ax25 ipx appletalk netrom bridge atmpvc x25 inet6 rose netbeui security key netlink packet ash econet atmsvc rds sna irda pppox wanpipe llc ib mpls can tipc bluetooth iucv rxrpc isdn phonet ieee802154 caif alg nfc vsock kcm qipcrtr smc xdp
++}
++}
++file {mask {create read write exec append mmap_exec link lock
++}
++}
++domain {version {1.2
++}
++attach_conditions {xattr {yes
++}
++}
++computed_longest_left {yes
++}
++post_nnp_subset {yes
++}
++fix_binfmt_elf_mmap {yes
++}
++stack {yes
++}
++change_profile {yes
++}
++change_onexec {yes
++}
++change_hatv {yes
++}
++change_hat {yes
++}
++}
++policy {set_load {yes
++}
++versions {v8 {yes
++}
++v7 {yes
++}
++v6 {yes
++}
++v5 {yes
++}
++}
++}
+diff --git a/tests/regression/apparmor/prologue.inc b/tests/regression/apparmor/prologue.inc
+index bcd2a54c8..49e310015 100755
+--- a/tests/regression/apparmor/prologue.inc
++++ b/tests/regression/apparmor/prologue.inc
+@@ -418,6 +418,7 @@ fi
+ 		mv $profilenames ${profilenames}.old
+ 	fi
+ 
++	echo "abi <kernel>," >$profile
+ 	num_emitted=0
+ 
+ 	while /bin/true
+-- 
+2.34.1
+

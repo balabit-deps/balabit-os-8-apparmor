@@ -1,0 +1,118 @@
+From 62625a12df4244d797a86a042f2b9f3bfcc6258b Mon Sep 17 00:00:00 2001
+From: Georgia Garcia <georgia.garcia@canonical.com>
+Date: Mon, 24 Oct 2022 14:14:21 +0000
+Subject: [PATCH] parser: enable mqueue rules when abi is not set
+
+Override pinned features or default features for mqueue
+when the abi is not set in policy. This is a special case for
+Honeywell. Their policies do not have an abi set but their kernel
+mediates mqueues, so when we pin the abi based on a kernel that
+does not mediate mqueues, it will break for them.
+
+Signed-off-by: Georgia Garcia <georgia.garcia@canonical.com>
+---
+ parser/mqueue.cc       | 10 ++++++++++
+ parser/parser.h        |  3 +++
+ parser/parser_common.c |  8 ++++++--
+ parser/parser_main.c   |  4 ++++
+ parser/parser_yacc.y   |  2 ++
+ 5 files changed, 25 insertions(+), 2 deletions(-)
+
+diff --git a/parser/mqueue.cc b/parser/mqueue.cc
+index c9ff42bff..72a5e45a3 100644
+--- a/parser/mqueue.cc
++++ b/parser/mqueue.cc
+@@ -198,6 +198,16 @@ int mqueue_rule::gen_policy_re(Profile &prof)
+ 	const int size = 2;
+ 	const char *vec[size];
+ 
++	/* Override pinned features or default features for mqueue
++	 * when the abi is not set in policy. This is a special case for
++	 * Honeywell. Their policies do not have an abi set but their kernel
++	 * mediates mqueues, so when we pin the abi based on a kernel that
++	 * does not mediate mqueues, it will break for them.
++	 */
++	if (!abi_set_in_policy) {
++		features_supports_posix_mqueue = kernel_supports_posix_mqueue;
++		features_supports_sysv_mqueue = kernel_supports_sysv_mqueue;
++	}
+ 
+ 	if (qtype == mqueue_posix && !features_supports_posix_mqueue) {
+ 		warn_once(prof.name);
+diff --git a/parser/parser.h b/parser/parser.h
+index 14dcf0c5e..78261336d 100644
+--- a/parser/parser.h
++++ b/parser/parser.h
+@@ -298,6 +298,7 @@ extern uint32_t kernel_abi_version;
+ extern aa_features *pinned_features;
+ extern aa_features *policy_features;
+ extern aa_features *kernel_features;
++extern bool abi_set_in_policy;
+ 
+ extern int force_complain;
+ extern int perms_create;
+@@ -315,6 +316,8 @@ extern int features_supports_unix;
+ extern int features_supports_stacking;
+ extern int features_supports_posix_mqueue;
+ extern int features_supports_sysv_mqueue;
++extern int kernel_supports_posix_mqueue;
++extern int kernel_supports_sysv_mqueue;
+ extern int conf_verbose;
+ extern int conf_quiet;
+ extern int names_only;
+diff --git a/parser/parser_common.c b/parser/parser_common.c
+index 3fca044f6..787096ed1 100644
+--- a/parser/parser_common.c
++++ b/parser/parser_common.c
+@@ -74,14 +74,18 @@ int kernel_supports_diff_encode = 0;	/* kernel supports diff_encode */
+ int features_supports_signal = 0;	/* kernel supports signal rules */
+ int features_supports_ptrace = 0;	/* kernel supports ptrace rules */
+ int features_supports_stacking = 0;	/* kernel supports stacking */
+-int features_supports_posix_mqueue = 0;	/* kernel supports mqueue rules */
+-int features_supports_sysv_mqueue = 0;	/* kernel supports mqueue rules */
++int features_supports_posix_mqueue = 0;	/* kernel+abi support mqueue rules */
++int features_supports_sysv_mqueue = 0;	/* kernel+abi support mqueue rules */
++int kernel_supports_posix_mqueue = 0;	/* kernel supports mqueue rules */
++int kernel_supports_sysv_mqueue = 0;	/* kernel supports mqueue rules */
+ int conf_verbose = 0;
+ int conf_quiet = 0;
+ int names_only = 0;
+ int current_lineno = 1;
+ int option = OPTION_ADD;
+ 
++bool abi_set_in_policy = false;
++
+ dfaflags_t dfaflags = (dfaflags_t)(DFA_CONTROL_TREE_NORMAL | DFA_CONTROL_TREE_SIMPLE | DFA_CONTROL_MINIMIZE | DFA_CONTROL_DIFF_ENCODE);
+ dfaflags_t warnflags = 0;
+ 
+diff --git a/parser/parser_main.c b/parser/parser_main.c
+index 9c69ef731..4d2a6149d 100644
+--- a/parser/parser_main.c
++++ b/parser/parser_main.c
+@@ -830,6 +830,10 @@ void set_supported_features()
+ 	features_supports_sysv_mqueue = features_intersect(kernel_features,
+ 							   policy_features,
+ 							   "ipc/sysv_mqueue");
++	kernel_supports_posix_mqueue = aa_features_supports(kernel_features,
++							    "ipc/posix_mqueue");
++	kernel_supports_sysv_mqueue = aa_features_supports(kernel_features,
++							   "ipc/sysv_mqueue");
+ }
+ 
+ static bool do_print_cache_dir(aa_features *features, int dirfd, const char *path)
+diff --git a/parser/parser_yacc.y b/parser/parser_yacc.y
+index 4576052b5..db73ab877 100644
+--- a/parser/parser_yacc.y
++++ b/parser/parser_yacc.y
+@@ -1849,6 +1849,8 @@ static void abi_features(char *filename, bool search)
+ {
+ 	struct aa_features *tmp_features;
+ 
++	abi_set_in_policy = true;
++
+ 	if (abi_features_base(&tmp_features, filename, search) == -1) {
+ 			yyerror(_("failed to find features abi '%s': %m"), filename);
+ 	}
+-- 
+2.34.1
+

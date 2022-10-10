@@ -1,0 +1,46 @@
+From 3f8cfac384adcc430d8bcb5b783b1132eba7c69a Mon Sep 17 00:00:00 2001
+From: Steve Beattie <steve.beattie@canonical.com>
+Date: Wed, 26 Aug 2020 20:11:10 -0700
+Subject: [PATCH] parser/Makefile: fix generated cap comparison against known
+ list
+
+The sed command to manipulate the known cap list (base_cap_names.h) into
+a format to match the generated_cap_names.h was buggy because the
+trailing '}' would never match anything, leading to failures when built
+against 5.8 kernel headers, due to it not replacing the base capabilities
+correctly.
+
+Fix this by removing the trailing '}" match and instead match the third
+comma-delimited field that matches a capability name, and replace that.
+
+Signed-off-by: Steve Beattie <steve.beattie@canonical.com>
+Acked-by: Seth Arnold <seth.arnold@canonical.com>
+MR: https://gitlab.com/apparmor/apparmor/-/merge_requests/596
+(cherry picked from commit a7fc8bb5008f17075137e6743230807ebf2b3ee6)
+Signed-off-by: John Johansen <john.johansen@canonical.com>
+---
+ parser/Makefile | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/parser/Makefile b/parser/Makefile
+index 70583dc70..1ab173dd4 100644
+--- a/parser/Makefile
++++ b/parser/Makefile
+@@ -286,12 +286,12 @@ generated_cap_names.h: /usr/include/linu
+ 	../common/list_capabilities.sh | LC_ALL=C sed -n -e "s/[ \\t]\\?CAP_\\([A-Z0-9_]\\+\\)/\{\"\\L\\1\", \\UCAP_\\1\},\\n/pg" > $@
+ 
+ cap_names.h: generated_cap_names.h base_cap_names.h
+-	@ LC_ALL=C diff -u base_cap_names.h generated_cap_names.h | grep '^\+[^+]' ; \
++	@LC_ALL=C sed -e 's/\([^,]*,[^,]*,\) CAP_[A-Z0-9_]\+,/\1 NO_BACKMAP_CAP,/g' base_cap_names.h | diff -u - generated_cap_names.h | grep '^\+[^+]' ; \
+ 	if [ $$? -eq 1 ] ; then \
+ 		cp base_cap_names.h $@ ; \
+ 	else \
+ 		echo "Error: new capabilities detected please update base_cap_names.h with values from generated_cap_names.h" ; \
+-		LC_ALL=C diff -u base_cap_names.h generated_cap_names.h ; \
++		LC_ALL=C sed -e 's/\([^,]*,[^,]*,\) CAP_[A-Z0-9_]\+,/\1 NO_BACKMAP_CAP,/g' base_cap_names.h | diff -u - generated_cap_names.h ; \
+ 		exit 1; \
+ 	fi
+ 
+-- 
+2.34.1
+
