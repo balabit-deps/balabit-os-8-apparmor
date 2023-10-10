@@ -1,3 +1,10 @@
+apparmor (2.13.3-7ubuntu5.3) focal; urgency=medium
+
+  * apparmor.preinst: recursively remove cache directories during a
+    upgrade. (LP: #2032851)
+
+ -- Georgia Garcia <georgia.garcia@canonical.com>  Tue, 10 Oct 2023 09:20:12 -0300
+
 apparmor (2.13.3-7ubuntu5.2) focal; urgency=medium
 
   * Add capability upstream patches to fix LP: #1964636

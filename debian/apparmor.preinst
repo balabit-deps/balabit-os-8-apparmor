@@ -12,7 +12,7 @@ case "$1" in
             rm -f /var/lib/apparmor/profiles/.*.md5sums
         fi
         if [ "$1" = "upgrade" ] && dpkg --compare-versions "$2" lt-nl "2.13"; then
-            rm -f /etc/apparmor.d/cache/.features /etc/apparmor.d/cache/*
+            rm -rf /etc/apparmor.d/cache/.features /etc/apparmor.d/cache/*
         fi
 	;;
 
