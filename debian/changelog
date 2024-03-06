@@ -1,9 +1,48 @@
-apparmor (2.13.3-7ubuntu5.3build2) focal-security; urgency=medium
+apparmor (2.13.3-7ubuntu5.4) focal-security; urgency=medium
 
-  * No-change re-build upload for the focal-security pocket as part
-    of the preparation for addressing CVE-2016-1585 (LP: #1597017)
+  * SECURITY UPDATE: Excessive permissions with mount rules (LP: #1597017)
+    - d/p/CVE-2016-1585/parser-Fix-expansion-of-variables-in-unix-rules-addr.patch:
+      add calls to filter_slashes() in parser/af_unix.cc, make it external
+      in parser/parser.h and change it to void in parser/parser_regex.c.
+    - d/p/CVE-2016-1585/parser-enable-variable-expansion-for-mount-type-and-.patch:
+      add variable expansion with expand_entry_variables() in
+      parser/mount.cc.
+    - d/p/CVE-2016-1585/parser-call-filter-slashes-for-mount-conditionals.patch:
+      add calls to filter_slashes() in parser/mount.cc.
+    - d/p/CVE-2016-1585/Support-rule-qualifiers-in-regression-tests.patch:
+      update rule qualifiers in regression tests in
+      tests/regression/apparmor/mkprofile.pl and
+      tests/regression/apparmor/capabilities.sh.
+    - d/p/CVE-2016-1585/Merge-Fix-mount-rules-encoding.patch: fix mount
+      rules encoding in parser/mount.cc, parser/mount.h, parser/parser.h
+      and fix multiple test cases in parser/tst/simple_tests/mount/*.
+    - d/p/CVE-2016-1585/Merge-expand-mount-tests.patch: expand mount
+      regression tests in tests/regression/apparmor/Makefile,
+      tests/regression/apparmor/mount.c,
+      tests/regression/apparmor/mount.sh and
+      tests/regression/apparmor/mkprofile.pl.
+    - d/p/CVE-2016-1585/Merge-Issue-312-added-missing-kernel-mount-options.patch:
+      add missing kernel mount options flag in parser/apparmor.d.pod,
+      parser/mount.cc, parser/mount.h, tests/regression/apparmor/mount.sh
+      and parser/tst/simple_tests/mount/*.
+    - d/p/CVE-2016-1585/Merge-extend-test-profiles-for-mount.patch: update
+      test profiles in parser/tst/simple_tests/mount/*.
+    - d/p/CVE-2016-1585/Merge-parser-fix-parsing-of-source-as-mount-point-fo.patch:
+      update gen_policy_change_mount_type() in parser/mount.cc and also
+      updated tests on parser/tst/simple_tests/mount/* and
+      tests/regression/apparmor/mount.sh.
+    - d/p/CVE-2016-1585/parser-fix-rule-flag-generation-change_mount-type-ru.patch:
+      add device checks in gen_flag_rules() in parser/mount.cc and tests
+      in parser/tst/simple_tests/mount/*, parser/tst/equality.sh,
+      tests/regression/apparmor/mount.sh and
+      utils/test/test-parser-simple-tests.py.
+    - d/p/CVE-2016-1585/Fix-build-failure-in-df4ed537e-allow-reading-of-etc-.patch:
+      remove the WARN_DEPRECATED flag in pwarn call in parser/mount.cc.
+    - d/p/CVE-2016-1585/parser-Deprecation-warning-should-not-have-been-back.patch:
+      remove deprecation warning message in parser/mount.cc.
+    - CVE-2016-1585
 
- -- Steve Beattie <steve.beattie@canonical.com>  Tue, 27 Aug 2024 14:51:30 -0700
+ -- Rodrigo Figueiredo Zaiden <rodrigo.zaiden@canonical.com>  Tue, 06 Mar 2024 15:40:00 -0300
 
 apparmor (2.13.3-7ubuntu5.3) focal; urgency=medium
 
