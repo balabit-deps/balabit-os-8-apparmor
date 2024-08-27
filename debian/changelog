@@ -1,3 +1,10 @@
+apparmor (2.13.3-7ubuntu5.3build2) focal-security; urgency=medium
+
+  * No-change re-build upload for the focal-security pocket as part
+    of the preparation for addressing CVE-2016-1585 (LP: #1597017)
+
+ -- Steve Beattie <steve.beattie@canonical.com>  Tue, 27 Aug 2024 14:51:30 -0700
+
 apparmor (2.13.3-7ubuntu5.3) focal; urgency=medium
 
   * apparmor.preinst: recursively remove cache directories during a
